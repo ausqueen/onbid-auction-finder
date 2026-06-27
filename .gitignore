@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+.cache/
+*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+backend/tmp_downloads/
+
+# Temp / runtime files
+backend/check_attachment.py
+backend/check_db.py
+backend/reset_pending.py
+backend/search_address.py
+backend/app/sync_status.json
+
+# Log files
+backend/analyze_log.txt
+backend/debug_log.txt
+debug_log.txt
+
