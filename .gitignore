@@ -47,3 +47,8 @@ backend/analyze_log.txt
 backend/debug_log.txt
 debug_log.txt
 
+
+# Secrets / runtime data (절대 커밋 금지)
+certbot/
+data/
+nginx/*.bak.*
