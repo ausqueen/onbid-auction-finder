@@ -35,7 +35,7 @@ def _scheduled_bankruptcy_phase1():
     import sys
     from pathlib import Path
     logger.info("스케줄러: 대법원 파산 공고 수집(Phase 1) 시작")
-    script_path = Path(__file__).parent.parent.parent / "debug.py"
+    script_path = Path(__file__).parent.parent / "debug.py"
     try:
         subprocess.Popen(
             [sys.executable, str(script_path)],
@@ -51,7 +51,7 @@ def _scheduled_bankruptcy_phase2():
     import sys
     from pathlib import Path
     logger.info("스케줄러: 대법원 파산 공고 AI 분석(Phase 2) 시작")
-    script_path = Path(__file__).parent.parent.parent / "analyze_worker.py"
+    script_path = Path(__file__).parent.parent / "analyze_worker.py"
     try:
         subprocess.Popen(
             [sys.executable, str(script_path)],

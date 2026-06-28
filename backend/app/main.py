@@ -65,8 +65,15 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    logger.info("DB 초기화 완료 (스케줄러는 윈도우 작업 스케줄러로 이관됨)")
+    # 앱 내장 스케줄러 시작 (대법원 공고 수집 08:30/13:30, AI 분석 08:40/13:40, 온비드 일일 동기화 09:00)
+    try:
+        start_scheduler()
+    except Exception as e:
+        logger.error(f"스케줄러 시작 실패: {e}")
+
+    logger.info("DB 초기화 완료")
     yield
+    stop_scheduler()
     logger.info("앱 종료")
 
 
