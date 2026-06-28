@@ -65,14 +65,14 @@ function AddressMapContent({ address, kakaoKey, naverKey, naverScriptLoaded }: A
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showVworldModal, setShowVworldModal] = useState(false)
 
   useEffect(() => {
     if (!address) return
-
+    
     let isMounted = true
     setLoading(true)
     setError(null)
-
     // 1. 네이버 지오코더 사용 시도
     const tryNaverGeocode = () => {
       const naver = (window as any).naver
@@ -139,7 +139,6 @@ function AddressMapContent({ address, kakaoKey, naverKey, naverScriptLoaded }: A
         setLoading(false)
       }
     }
-
     // 네이버 스크립트가 로드되어 있으면 네이버 우선 사용
     if (naverScriptLoaded) {
       if (tryNaverGeocode()) return
@@ -218,6 +217,71 @@ function AddressMapContent({ address, kakaoKey, naverKey, naverScriptLoaded }: A
         </div>
       ) : (
         coords && <KakaoMapContainer coords={coords} />
+      )}
+
+      {/* 5. 토지이용계획도 확인 링크 */}
+      {coords && (
+        <div className="flex justify-end mt-1">
+          <button
+            onClick={() => setShowVworldModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white text-xs font-bold rounded-md transition-all shadow-sm border border-sky-600 hover:shadow-md hover:scale-[1.02]"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            토지이용 계획도 확인
+          </button>
+        </div>
+      )}
+
+      {/* 6. Vworld 지도 모달 팝업 */}
+      {showVworldModal && coords && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-5xl h-[85vh] bg-slate-900 border border-slate-700/50 rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/95 backdrop-blur-md">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 bg-sky-500/10 text-sky-400 rounded-lg">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                  </svg>
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-white">토지이용 계획도 & 지적도 확인</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{address}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <a
+                  href={`/vworld_map.html?lat=${coords.lat}&lng=${coords.lng}&address=${encodeURIComponent(address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold rounded-lg transition-colors border border-slate-700"
+                >
+                  새 창으로 보기
+                </a>
+                <button
+                  onClick={() => setShowVworldModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            {/* Map Frame */}
+            <div className="flex-1 bg-slate-950 relative">
+              <iframe
+                src={`/vworld_map.html?lat=${coords.lat}&lng=${coords.lng}&address=${encodeURIComponent(address)}`}
+                className="w-full h-full border-none"
+                title="Vworld Land Use Plan Map"
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

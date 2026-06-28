@@ -25,7 +25,7 @@ const Login: React.FC = () => {
     },
     {
       image: '/bg_realestate3.png',
-      title: '대법원 파산 자산 매각 분석',
+      title: '대법원 파산 자산 매각 & 온비드 공매 추천 분석',
       subtitle: 'Gemini AI 기반 파산 공고문 실시간 해독',
       description: '복잡한 공고 내용과 인수 항목을 AI가 즉시 요약하고 분석 결과를 매핑합니다.'
     }
@@ -141,8 +141,9 @@ const Login: React.FC = () => {
             <div className="lg:hidden mx-auto h-12 w-12 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 mb-6">
               COURT
             </div>
-            <h2 className="text-center lg:text-left text-3xl font-extrabold text-white tracking-tight">
-              대법원 파산 자산 매각
+            <h2 className="text-center lg:text-left text-3xl font-extrabold text-white tracking-tight leading-tight">
+              대법원 파산 자산 매각 &<br />
+              온비드 공매 추천
             </h2>
             <p className="mt-3 text-center lg:text-left text-sm text-gray-400 font-normal">
               전문 부동산 분석 정보 제공 및 추천 계약 솔루션

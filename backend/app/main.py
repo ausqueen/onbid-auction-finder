@@ -14,7 +14,7 @@ if sys.platform == 'win32':
 load_dotenv()  # .env 값을 os.environ에 확실하게 적재
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
@@ -113,6 +113,42 @@ def get_kakao_key():
 @app.get("/api/config/naver")
 def get_naver_key():
     return {"naver_client_id": settings.naver_client_id}
+
+
+@app.get("/api/config/vworld")
+def get_vworld_key():
+    return {"vworld_api_key": settings.vworld_api_key or "28061B90-E735-3802-9ECD-0077C4F36B50"}
+
+
+@app.get("/api/proxy/vworld/{path:path}")
+async def proxy_vworld(path: str, request: Request):
+    import httpx
+    # Extract query parameters
+    query_params = dict(request.query_params)
+    
+    # Inject Vworld key and domain if missing or blank
+    if "key" not in query_params or not query_params["key"]:
+        query_params["key"] = settings.vworld_api_key or "28061B90-E735-3802-9ECD-0077C4F36B50"
+    if "domain" not in query_params:
+        # Default to a safe placeholder or extract host from header
+        host = request.headers.get("host", "localhost")
+        query_params["domain"] = host.split(":")[0]
+        
+    vworld_url = f"https://api.vworld.kr/{path}"
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(vworld_url, params=query_params)
+            try:
+                # Try returning as JSON
+                return response.json()
+            except Exception:
+                # Fallback to plain text response (WMS image is binary, but Data API is JSON/XML)
+                from fastapi.responses import Response
+                return Response(content=response.content, media_type=response.headers.get("content-type"))
+        except Exception as e:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/health")

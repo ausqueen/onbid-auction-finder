@@ -16,7 +16,7 @@ export default function Navigation() {
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center">
               <div className="flex-shrink-0 flex items-center text-white font-extrabold text-lg tracking-tight mr-8 cursor-pointer hover:text-indigo-400 transition-colors">
-                🏛 OnBid & 파산공매
+                🏛 파산공매 & OnBid
               </div>
               <div className="flex items-center space-x-2">
                 <Link to="/" className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${isActive('/')}`}>

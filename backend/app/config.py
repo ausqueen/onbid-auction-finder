@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     naver_client_id: str = ""
     naver_client_secret: str = ""
 
+    # 브이월드 API Key
+    vworld_api_key: str = "28061B90-E735-3802-9ECD-0077C4F36B50"
+
     # 앱 설정
     app_name: str = "온비드 공매 추천 서비스"
     debug: bool = False
@@ -43,13 +46,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
     playwright_browsers_path: str = ""
 
-    # 브이월드 API
-    vworld_api_key: str = "28061B90-E735-3802-9ECD-0077C4F36B50"
-
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        extra = "ignore"
 
 
 @lru_cache()

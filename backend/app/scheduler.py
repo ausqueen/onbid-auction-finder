@@ -1,5 +1,5 @@
 """
-APScheduler: 매일 09:00 자동 동기화, 파산공매 하루 3회 (00:30/08:30/13:30)
+APScheduler: 매일 09:00 자동 동기화
 """
 
 import logging
@@ -30,7 +30,7 @@ def _scheduled_sync():
 
 
 def _scheduled_bankruptcy_phase1():
-    """스케줄러: 대법원 파산 공고 목록 수집 (하루 3회)"""
+    """스케줄러: 대법원 파산 공고 목록 수집 (하루 2회)"""
     import subprocess
     import sys
     from pathlib import Path
@@ -46,7 +46,7 @@ def _scheduled_bankruptcy_phase1():
         logger.error(f"스케줄러: 대법원 공고 수집 실행 오류 - {e}")
 
 def _scheduled_bankruptcy_phase2():
-    """스케줄러: 대법원 파산 공고 AI 분석 (Phase 1 직후 하루 3회)"""
+    """스케줄러: 대법원 파산 공고 AI 분석 (Phase 1 직후 하루 2회)"""
     import subprocess
     import sys
     from pathlib import Path
@@ -77,19 +77,19 @@ def start_scheduler():
         replace_existing=True,
     )
     
-    # 대법원 파산 공고 수집 (자정 00:30, 오전 08:30, 오후 13:30 — 하루 3회)
+    # 대법원 파산 공고 수집 (오전 8시 30분, 오후 1시 30분)
     _scheduler.add_job(
         _scheduled_bankruptcy_phase1,
-        trigger=CronTrigger(hour="0,8,13", minute="30"),
+        trigger=CronTrigger(hour="8,13", minute="30"),
         id="bankruptcy_sync_phase1",
         name="대법원 공고 수집",
         replace_existing=True,
     )
 
-    # 대법원 파산 공고 분석 (자정 00:40, 오전 08:40, 오후 13:40 — 하루 3회)
+    # 대법원 파산 공고 분석 (오전 8시 40분, 오후 1시 40분)
     _scheduler.add_job(
         _scheduled_bankruptcy_phase2,
-        trigger=CronTrigger(hour="0,8,13", minute="40"),
+        trigger=CronTrigger(hour="8,13", minute="40"),
         id="bankruptcy_sync_phase2",
         name="대법원 공고 AI 분석",
         replace_existing=True,
