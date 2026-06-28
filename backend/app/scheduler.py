@@ -62,6 +62,23 @@ def _scheduled_bankruptcy_phase2():
         logger.error(f"스케줄러: 대법원 공고 분석 실행 오류 - {e}")
 
 
+def _scheduled_bankruptcy_phase2a():
+    """스케줄러: 대법원 파산 공고 PDF 동기화 (Phase 1 직후, 분석 전 / quick 모드)"""
+    import subprocess
+    import sys
+    from pathlib import Path
+    logger.info("스케줄러: 대법원 파산 공고 PDF 동기화(Phase 2a) 시작")
+    script_path = Path(__file__).parent.parent / "download_sync_worker.py"
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script_path), "quick"],
+            cwd=str(script_path.parent),
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+    except Exception as e:
+        logger.error(f"스케줄러: 대법원 공고 PDF 동기화 실행 오류 - {e}")
+
+
 def start_scheduler():
     """스케줄러 시작"""
     global _scheduler
@@ -83,6 +100,15 @@ def start_scheduler():
         trigger=CronTrigger(hour="8,13", minute="30"),
         id="bankruptcy_sync_phase1",
         name="대법원 공고 수집",
+        replace_existing=True,
+    )
+
+    # 대법원 파산 공고 PDF 동기화 (오전 8시 35분, 오후 1시 35분)
+    _scheduler.add_job(
+        _scheduled_bankruptcy_phase2a,
+        trigger=CronTrigger(hour="8,13", minute="35"),
+        id="bankruptcy_sync_phase2a",
+        name="대법원 공고 PDF 동기화",
         replace_existing=True,
     )
 
