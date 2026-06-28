@@ -28,8 +28,17 @@ export async function syncBankruptcyProperties(): Promise<{ message: string }> {
   return res.json()
 }
 
+export async function triggerFileSync(mode: 'quick' | 'full' = 'quick'): Promise<{ message: string; mode: string }> {
+  const res = await fetch(`${API_BASE}/bankruptcy/file-sync?mode=${mode}`, {
+    method: 'POST',
+    headers: getHeaders()
+  })
+  if (!res.ok) throw new Error('Failed to trigger file sync')
+  return res.json()
+}
+
 export async function triggerAnalyze(): Promise<{ message: string }> {
-  const res = await fetch(`${API_BASE}/bankruptcy/analyze`, { 
+  const res = await fetch(`${API_BASE}/bankruptcy/analyze`, {
     method: 'POST',
     headers: getHeaders()
   })
@@ -44,6 +53,7 @@ export async function fetchProgress(): Promise<{
   total_in_db: number
   analyzed_in_db: number
   pending_analysis: number
+  synced_files: number
   message: string
 }> {
   const res = await fetch(`${API_BASE}/bankruptcy/progress`, {

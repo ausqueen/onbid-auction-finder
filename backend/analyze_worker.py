@@ -13,6 +13,7 @@ import asyncio
 import os
 import time
 import logging
+import tempfile
 
 # backend 디렉토리를 sys.path에 추가 (subprocess로 실행 시 경로 보정)
 _backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -104,7 +105,7 @@ def _is_unanalyzable(filename: str | None) -> bool:
     return bool(ext) and ext not in ANALYZABLE_EXTENSIONS
 
 
-LOCK_FILE = r"c:\antigravity\onbid-auction-finder\backend\analyze_worker.lock"
+LOCK_FILE = os.path.join(tempfile.gettempdir(), "analyze_worker.lock")
 
 def run():
     import atexit
@@ -135,10 +136,7 @@ def run():
     atexit.register(_cleanup)
 
     from dotenv import load_dotenv
-    load_dotenv(
-        r"c:\antigravity\onbid-auction-finder\backend\.env",
-        override=True,
-    )
+    load_dotenv(override=True)
 
     async def main():
         from playwright.async_api import async_playwright
@@ -150,11 +148,15 @@ def run():
 
         # WAL 모드 직접 활성화 (uvicorn 프로세스와 동시 접근 충돌 방지)
         import sqlite3 as _sqlite3
-        _db_path = r"c:\antigravity\onbid-auction-finder\backend\onbid.db"
-        _conn = _sqlite3.connect(_db_path)
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute("PRAGMA busy_timeout=15000")
-        _conn.close()
+        from app.database import engine as _engine
+        _db_path = str(_engine.url).replace("sqlite:///", "")
+        try:
+            _conn = _sqlite3.connect(_db_path)
+            _conn.execute("PRAGMA journal_mode=WAL")
+            _conn.execute("PRAGMA busy_timeout=15000")
+            _conn.close()
+        except Exception:
+            pass
 
         db = SessionLocal()
         set_status(phase="analyzing", message="독립 프로세스: AI 분석 시작")

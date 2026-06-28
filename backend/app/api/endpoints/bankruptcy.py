@@ -377,7 +377,7 @@ async def sync_bankruptcy_properties():
 
 @router.get("/progress", dependencies=[Depends(get_current_user)])
 def get_progress():
-    """Phase1/Phase2 진행 ?태?반환?니??"""
+    """Phase1/Phase2a/Phase2b 진행 상태를 반환합니다."""
     db = SessionLocal()
     try:
         total = db.query(BankruptcyProperty).count()
@@ -385,12 +385,21 @@ def get_progress():
             BankruptcyProperty.is_analyzed == False
         ).count()
         analyzed = total - not_analyzed
+
+        # 로컬 파일 보유 현황 (파일 동기화 상태 파악용)
+        from ...services.scourt_scraper import DOWNLOAD_DIR
+        try:
+            synced_files = len(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
+        except Exception:
+            synced_files = -1
+
         status = get_status()
         return {
             **status,
             "total_in_db": total,
             "analyzed_in_db": analyzed,
             "pending_analysis": not_analyzed,
+            "synced_files": synced_files,
         }
     finally:
         db.close()
@@ -435,31 +444,59 @@ async def check_new_notices(db: Session = Depends(get_db)):
 
 @router.post("/sync", dependencies=[Depends(get_current_user)])
 def trigger_phase1_sync():
-    """Phase 1: 공고게시???체 목록 빠른 ?집 (AI 분석 ?음) ???립 subprocess??행."""
+    """Phase 1: 공고게시판 전체 목록 빠른 수집 (AI 분석 없음). 독립 subprocess로 실행."""
     status = get_status()
-    if status.get("phase") in ("collecting", "analyzing"):
-        return {"message": "?? ?업??진행 중입?다.", "status": "already_running"}
+    if status.get("phase") in ("collecting", "analyzing", "file_syncing"):
+        return {"message": "이미 작업이 진행 중입니다.", "status": "already_running"}
 
-    # Windows uvicorn ?벤??루프 충돌 방? ???립 ?로?스??행
     script_path = Path(__file__).parent.parent.parent.parent / "debug.py"
     subprocess.Popen(
         [sys.executable, str(script_path)],
         cwd=str(script_path.parent),
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
-    set_status(phase="collecting", message="목록 ?집 ?로?스 ?작??)")
+    set_status(phase="collecting", message="목록 수집 프로세스 시작됨")
     return {
-        "message": "공고게시???체 목록 ?집???작?었?니?? (AI 분석 ?이 기본 ?보?먼? ?집)",
+        "message": "공고게시판 전체 목록 수집을 시작했습니다. (AI 분석 없이 기본 정보 먼저 수집)",
         "status": "started",
     }
 
 
-@router.post("/analyze", dependencies=[Depends(get_current_user)])
-def trigger_phase2_analyze():
-    """Phase 2: 미분???? AI 분석 (분당 8??도 ?한) ???립 subprocess??행."""
+@router.post("/file-sync", dependencies=[Depends(get_current_user)])
+def trigger_phase2a_file_sync(mode: str = "quick"):
+    """
+    Phase 2a: 파일 동기화 (다운로드 전용, AI 분석 없음). 독립 subprocess로 실행.
+
+    mode=quick (기본): 로컬 파일 없거나 크기 0인 항목만 다운로드
+    mode=full        : 전체 항목 대상 — 파일명 변경·크기 변경·미존재 시 재다운로드
+    """
+    if mode not in ("quick", "full"):
+        mode = "quick"
+
     status = get_status()
-    if status.get("phase") in ("collecting", "analyzing"):
-        return {"message": "?? ?업??진행 중입?다.", "status": "already_running"}
+    if status.get("phase") in ("collecting", "analyzing", "file_syncing"):
+        return {"message": "이미 작업이 진행 중입니다.", "status": "already_running"}
+
+    script_path = Path(__file__).parent.parent.parent.parent / "download_sync_worker.py"
+    subprocess.Popen(
+        [sys.executable, str(script_path), mode],
+        cwd=str(script_path.parent),
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    set_status(phase="file_syncing", message=f"파일 동기화 프로세스 시작됨 (mode={mode})")
+    return {
+        "message": f"파일 동기화를 시작했습니다. (mode={mode})",
+        "status": "started",
+        "mode": mode,
+    }
+
+
+@router.post("/analyze", dependencies=[Depends(get_current_user)])
+def trigger_phase2b_analyze():
+    """Phase 2b: 미분석 항목 AI 분석 (분당 8건 속도 제한). 독립 subprocess로 실행."""
+    status = get_status()
+    if status.get("phase") in ("collecting", "analyzing", "file_syncing"):
+        return {"message": "이미 작업이 진행 중입니다.", "status": "already_running"}
 
     script_path = Path(__file__).parent.parent.parent.parent / "analyze_worker.py"
     subprocess.Popen(
@@ -467,9 +504,9 @@ def trigger_phase2_analyze():
         cwd=str(script_path.parent),
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
-    set_status(phase="analyzing", message="AI 분석 ?로?스 ?작??)")
+    set_status(phase="analyzing", message="AI 분석 프로세스 시작됨")
     return {
-        "message": "미분???? AI 분석???작?었?니?? (분당 ??8?처리)",
+        "message": "미분석 항목 AI 분석을 시작했습니다. (분당 약 8건 처리)",
         "status": "started",
     }
 

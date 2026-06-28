@@ -6,7 +6,7 @@ import {
   Heart
 } from 'lucide-react'
 import { BankruptcyProperty } from '../types/bankruptcy'
-import { fetchBankruptcyProperties, syncBankruptcyProperties, triggerAnalyze, fetchProgress, checkNewNotices } from '../api/bankruptcyClient'
+import { fetchBankruptcyProperties, syncBankruptcyProperties, triggerFileSync, triggerAnalyze, fetchProgress, checkNewNotices } from '../api/bankruptcyClient'
 import AddressMap from '../components/AddressMap'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -17,6 +17,7 @@ interface ProgressInfo {
   total_in_db: number
   analyzed_in_db: number
   pending_analysis: number
+  synced_files: number
   message: string
 }
 
@@ -157,9 +158,9 @@ export default function BankruptcyList() {
   }, [activeTab, showRecommendedOnly, showFavoritesOnly, searchQuery, searchType])
 
   useEffect(() => {
-    const isWorking = progress?.phase === 'collecting' || progress?.phase === 'analyzing'
+    const isWorking = progress?.phase === 'collecting' || progress?.phase === 'analyzing' || progress?.phase === 'file_syncing'
     const justFinished =
-      (prevPhaseRef.current === 'collecting' || prevPhaseRef.current === 'analyzing') &&
+      (prevPhaseRef.current === 'collecting' || prevPhaseRef.current === 'analyzing' || prevPhaseRef.current === 'file_syncing') &&
       !isWorking
 
     if (justFinished) {
@@ -246,6 +247,16 @@ export default function BankruptcyList() {
       alert('수집 시작 실패')
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  const handleFileSync = async (mode: 'quick' | 'full' = 'quick') => {
+    try {
+      await triggerFileSync(mode)
+      setProgress(prev => ({ ...(prev || {} as ProgressInfo), phase: 'file_syncing', message: `파일 동기화 시작됨 (${mode})...` }))
+      setTimeout(() => { loadProgress() }, 2000)
+    } catch (err) {
+      alert('파일 동기화 시작 실패')
     }
   }
 
@@ -338,6 +349,24 @@ export default function BankruptcyList() {
             {isSyncing ? '시작 중...' : hasNewData ? '신규 데이터 수집 활성화됨' : '최신 데이터 유지 중'}
           </button>
           <button
+            onClick={() => handleFileSync('quick')}
+            disabled={isWorking}
+            title="로컬 파일 없는 항목만 법원 사이트에서 재다운로드 (빠름)"
+            className="flex items-center px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-teal-300 transition-colors shadow-sm text-sm font-medium"
+          >
+            <Paperclip className="w-4 h-4 mr-2" />
+            파일 동기화 (빠른)
+          </button>
+          <button
+            onClick={() => handleFileSync('full')}
+            disabled={isWorking}
+            title="전체 항목 대상 — 파일명·파일크기 변경 감지 후 재다운로드 (느림)"
+            className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-orange-300 transition-colors shadow-sm text-sm font-medium"
+          >
+            <Paperclip className="w-4 h-4 mr-2" />
+            파일 동기화 (전체)
+          </button>
+          <button
             onClick={handleAnalyze}
             disabled={isAnalyzing || isWorking || pendingCount === 0}
             className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-purple-300 transition-colors shadow-sm text-sm font-medium"
@@ -355,12 +384,15 @@ export default function BankruptcyList() {
           <Clock className="w-5 h-5 text-blue-500 animate-spin shrink-0" />
           <div className="flex-1">
             <div className="text-sm font-semibold text-blue-800">
-              {progress.phase === 'collecting' ? '📋 목록 수집 진행 중' : '🤖 AI 분석 진행 중'}
+              {progress.phase === 'collecting' ? '📋 목록 수집 진행 중'
+                : progress.phase === 'file_syncing' ? '📎 파일 동기화 진행 중'
+                : '🤖 AI 분석 진행 중'}
               {' — '}
               {progress.message}
             </div>
             <div className="text-xs text-blue-600 mt-0.5">
               DB 누계: {totalInDb}건 | 분석 완료: {progress.analyzed_in_db}건 | 미분석: {pendingCount}건
+              {progress.synced_files >= 0 && ` | 로컬 파일: ${progress.synced_files}건`}
             </div>
           </div>
           <span className="text-xs text-blue-500 bg-blue-100 px-2 py-1 rounded-full">자동 갱신 중</span>
