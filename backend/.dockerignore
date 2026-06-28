@@ -1,0 +1,8 @@
+.env
+onbid.db
+onbid.db-wal
+onbid.db-shm
+tmp_downloads/
+.venv/
+__pycache__/
+*.pyc
