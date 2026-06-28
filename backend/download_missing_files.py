@@ -8,7 +8,7 @@ import time
 
 async def main():
     from dotenv import load_dotenv
-    load_dotenv(r"c:\antigravity\onbid-auction-finder\backend\.env", override=True)
+    load_dotenv(override=True)
     from playwright.async_api import async_playwright
     from app.database import SessionLocal
     from app.models.bankruptcy import BankruptcyProperty
