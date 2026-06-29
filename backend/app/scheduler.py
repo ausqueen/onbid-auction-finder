@@ -83,16 +83,20 @@ def start_scheduler():
     """스케줄러 시작"""
     global _scheduler
     _scheduler = BackgroundScheduler(timezone="Asia/Seoul")
-    _scheduler.add_job(
-        _scheduled_sync,
-        trigger=CronTrigger(
-            hour=settings.sync_hour,
-            minute=settings.sync_minute,
-        ),
-        id="daily_sync",
-        name="온비드 일일 동기화",
-        replace_existing=True,
-    )
+    # 온비드 일일 동기화: 2026-06-29 비활성화(429 쿼터 초과). ONBID_SYNC_ENABLED=true 로 재개 가능.
+    if settings.onbid_sync_enabled:
+        _scheduler.add_job(
+            _scheduled_sync,
+            trigger=CronTrigger(
+                hour=settings.sync_hour,
+                minute=settings.sync_minute,
+            ),
+            id="daily_sync",
+            name="온비드 일일 동기화",
+            replace_existing=True,
+        )
+    else:
+        logger.info("온비드 일일 동기화 비활성화됨 (ONBID_SYNC_ENABLED=false) — 잡 미등록")
     
     # 대법원 파산 공고 수집 (오전 8시 30분, 오후 1시 30분)
     _scheduler.add_job(

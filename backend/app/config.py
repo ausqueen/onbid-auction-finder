@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # 스케줄러
     sync_hour: int = 9       # 매일 오전 09:00 동기화
     sync_minute: int = 0
+    # 온비드 일일 동기화 on/off 플래그 (2026-06-29 비활성화: data.go.kr 상세 API 429 쿼터 초과 이슈)
+    # 재개하려면 .env 에 ONBID_SYNC_ENABLED=true 설정 후 백엔드 재빌드·재기동
+    onbid_sync_enabled: bool = False
 
     # 분석 파라미터
     min_gap_pct: float = 10.0     # 최소 Gap% (시세 대비 할인율)
