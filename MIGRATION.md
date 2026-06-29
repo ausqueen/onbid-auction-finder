@@ -10,8 +10,8 @@
 | 호스팅 | Contabo (일본 리전) |
 | IP | 5.104.87.178 |
 | 호스트명 | realty99 |
-| RDP 접속 | admin / Realty!@34 |
-| SSH 접속 | admin / Realty!@34 (포트 22, 84.247.164.65만 허용) |
+| RDP 접속 | admin / <평문 미기재> |
+| SSH 접속 | admin / <평문 미기재> (포트 22, 84.247.164.65만 허용) |
 
 > SSH는 이번 작업 중 설치 완료. 방화벽은 유럽 서버 IP(84.247.164.65)만 허용.
 
@@ -206,7 +206,7 @@ Z:\vpsshr\wonrealty\   ←WebDAV→   /volume2/vpsshr/linux   ←NFS→   /mnt/n
 |------|------|
 | IP | 161.33.4.54 |
 | OS | Ubuntu 24.04.4 LTS |
-| 접속 | ausqueen / Os390r10@@ |
+| 접속 | ausqueen / <평문 미기재> |
 | Docker | 29.6.1 |
 | 소스코드 | /opt/onbid-auction-finder (GitHub main) |
 | 백엔드 | onbid-backend (Docker, 포트 8001 internal) |
@@ -295,7 +295,7 @@ scp /root/antigravity/onbid-auction-finder/backend/onbid.db \
 
 ```bash
 ssh root@5.104.87.178
-# 비밀번호: os390r10
+# 비밀번호: <평문 미기재>
 ```
 
 #### 1-2. 서버 기본 설정 (재설치 직후 가장 먼저 실행)
@@ -668,7 +668,7 @@ curl -s https://wonrealty.kr/health                # API 응답 확인
 ls /mnt/nas                                            # NAS 마운트 확인
 ```
 - [ ] https://wonrealty.kr 브라우저 접속 확인
-- [ ] 로그인 동작 확인 (root / Realty!@34)
+- [ ] 로그인 동작 확인 (root / <평문 미기재>)
 - [ ] 공매 물건 목록 조회 확인
 - [ ] 스케줄러 로그에서 "00:30 / 08:30 / 13:30" 시간 확인
 
@@ -681,13 +681,13 @@ ls /mnt/nas                                            # NAS 마운트 확인
 
 ```bash
 # wonrealty.kr Ubuntu 서버 접속
-ssh root@5.104.87.178          # 비밀번호: os390r10
+ssh root@5.104.87.178          # 비밀번호: <평문 미기재>
 
 # Windows 서버 SSH (재설치 전까지)
-sshpass -p 'Realty!@34' ssh -o StrictHostKeyChecking=no admin@5.104.87.178 "powershell -command \"...\""
+sshpass -p '<평문 미기재>' ssh -o StrictHostKeyChecking=no admin@5.104.87.178 "powershell -command \"...\""
 
 # Oracle → Contabo DB 복사 (test 서버에서 실행, Windows 서버 다운으로 Oracle이 최신본)
-sshpass -p 'Os390r10@@' scp -o StrictHostKeyChecking=no \
+sshpass -p '<평문 미기재>' scp -o StrictHostKeyChecking=no \
   ausqueen@161.33.4.54:/opt/onbid-auction-finder/data/onbid.db \
   root@5.104.87.178:/opt/onbid-auction-finder/data/onbid.db
 
