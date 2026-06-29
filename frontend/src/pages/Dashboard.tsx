@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, TrendingUp, Shield, BarChart3, Loader2, Heart, Check } from 'lucide-react'
+import { RefreshCw, TrendingUp, Shield, BarChart3, Loader2, Heart, Check, AlertTriangle } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
@@ -92,6 +92,9 @@ export default function Dashboard() {
 
   const totalPages = listData ? Math.ceil(listData.total / 20) : 1
 
+  // 2026-06-29 온비드 수집 기능 수정 중 — 데이터 수집 버튼 비활성화. 재개 시 true→false 로 변경.
+  const COLLECTION_DISABLED: boolean = true
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
@@ -104,10 +107,17 @@ export default function Dashboard() {
                 마지막 동기화: {formatDate(summary.last_synced_at)}
               </span>
             )}
+            {COLLECTION_DISABLED && (
+              <span className="flex items-center gap-1 text-xs text-amber-600 max-w-[15rem] sm:max-w-md leading-tight">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                현재 수집 기능 수정 중입니다. 수집이 일시 중단되어, 표시되는 데이터는 과거 데이터입니다.
+              </span>
+            )}
             <button
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-              className="btn-primary flex items-center gap-1.5"
+              onClick={() => { if (COLLECTION_DISABLED) return; syncMutation.mutate() }}
+              disabled={COLLECTION_DISABLED || syncMutation.isPending}
+              title={COLLECTION_DISABLED ? '수집 기능 수정 중 — 일시 비활성화' : ''}
+              className="btn-primary flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {syncMutation.isPending ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
