@@ -29,10 +29,15 @@
 | `/opt/onbid-auction-finder/data/tmp_downloads` | PDF 첨부파일 저장소 → 컨테이너 `/app/tmp_downloads` |
 | `/opt/onbid-auction-finder/backend/.env` | 환경변수 |
 | `/opt/onbid-auction-finder/scripts/renew-cert.sh` | 인증서 자동 갱신 스크립트 |
-| `/mnt/nas` | NAS 마운트 (ausqueen.synology.me:/volume2/vpsshr/linux, NFS) |
-| `/mnt/nas/wonrealty/backend/.env` | NAS 백업 .env |
-| `/mnt/nas/wonrealty/backend/onbid.db` | NAS 백업 DB |
+| `/mnt/nas` | NAS 마운트 (ausqueen.synology.me:/volume2/vpsshr/linux, NFS) — **여러 서버 공유** |
+| `/mnt/nas/hyunsung/backend/.env` | NAS 백업 .env |
+| `/mnt/nas/hyunsung/backend/onbid.db` | NAS 백업 DB |
+| `/mnt/nas/hyunsung/_archive_orphans/` | 옛 프로토타입 잔재 보관 (scourt_auction·downloads·temp, 2026-07-03 정리) |
 | `/mnt/nas/abb_agent/install.run` | Synology ABB 에이전트 설치 파일 |
+
+> ⚠️ **NAS 공유 마운트 — 서버별 하위폴더 격리**: 같은 `/volume2/vpsshr/linux`가 **hyunsung·realty99 양쪽 `/mnt/nas`에 마운트**됨.
+> `/mnt/nas/X` == NAS 실제 `/volume2/vpsshr/linux/X`. 서버 구분은 하위폴더로: **이 서버(hyunsung)=`hyunsung/`** (구 `wonrealty/`, 2026-07-03 개명), **realty99=`daon/`·`backup/`**, 공용=`abb_agent/`.
+> 이 서버(onbid)는 `/mnt/nas`를 자동으로 쓰지 않음(컨테이너·크론 미참조). `hyunsung/*`는 마이그레이션 때 수동 1회 백업본. (ABB 백업은 `/mnt/nas` NFS 경유 아님 — 별도 저장소)
 
 > ⚠️ **컨테이너 경로 주의**: 볼륨 마운트는 `./data/onbid.db:/app/onbid.db`, `./data/tmp_downloads:/app/tmp_downloads`.
 > 컨테이너 내부에 `/app/data/` 디렉터리는 **없음**. DB=`/app/onbid.db`, 첨부=`/app/tmp_downloads`.
@@ -120,7 +125,13 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 | 서버 | IP | 역할 | 비고 |
 |------|----|------|------|
 | Oracle | 161.33.4.54 | 구 개발/테스트 (운영 이전됨) | |
-| Contabo (운영) | 5.104.87.178 | 운영 서버 (hostname: hyunsung, 구 wonrealty) | 현재 운영 |
+| Contabo (운영) | 5.104.87.178 | 운영 서버 (hostname: hyunsung, 구 wonrealty) | 현재 운영. onbid + hsrealty(예정) |
+| Contabo (realty99) | 5.104.87.20 | realty99.co.kr — 금강 다온 부동산 중개 사이트(**daon**) | Next.js14+FastAPI+PostgreSQL16(daondb)+Redis, 컨테이너 `daon_*`/`realty99_*`. `/mnt/nas` NFS 공유 |
+
+> 🔑 **서버 간 SSH (2026-07-03)**: `hyunsung ↔ realty99` **양방향 무비번**(ed25519 키). ausqueen 계정.
+> - hyunsung→realty99: 이 서버 `~/.ssh/id_ed25519` → realty99 authorized_keys 등록.
+> - realty99→hsrealty(=hyunsung): realty99 `~/.ssh/id_ed25519` → 이 서버 authorized_keys 등록.
+> - hsrealty.co.kr(5.104.87.178)로도 접속됨(DNS·포트22 정상). root SSH는 양쪽 차단 유지.
 
 ## 마이그레이션 완료 일자
 2026-06-28 — Oracle → Contabo 전환 완료
@@ -162,11 +173,16 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - **OS 호스트명 변경** `wonrealty` → `hyunsung` (`sudo hostnamectl set-hostname hyunsung`).
   무중단 적용 — Docker(onbid-backend/nginx)·ABB·서비스 재시작 불필요, 정상 확인.
   - **도메인 `wonrealty.kr`과 무관**(호스트명 ≠ DNS 도메인). SSL·nginx·웹서비스 영향 없음.
-    nginx 설정 파일명 `wonrealty.conf`, NAS 백업 경로 `/mnt/nas/wonrealty/…`는 호스트명이 아니므로 **그대로 유지**.
+    nginx 설정 파일명 `wonrealty.conf`, NAS 백업 경로 `/mnt/nas/hyunsung/…`는 호스트명이 아니므로 **그대로 유지**.
   - ABB 백업: 장비 식별은 `device_uuid`(Machine ID `61e1389a…`)+token 기준이라 **백업 이력·체인 유지**.
     NAS UI 표시명만 다음 에이전트 인증 시 `hyunsung`으로 갱신됨.
   - 재부팅 리버트 방지: `/etc/cloud/cloud.cfg`의 `preserve_hostname: false` → **`true`** 로 변경.
 - **개발/테스트 서버(Contabo test, 84.247.164.65) 폐기** — 더 이상 존재하지 않음. 관련 문서 항목 전부 삭제.
+- **realty99 서버 파악 + NAS 서버별 격리 + 서버간 SSH 키**:
+  - realty99(5.104.87.20) 정체 확인 = **금강 다온 부동산 중개 사이트(daon)**. `/opt/daon`, Next.js14+FastAPI+PG16(daondb)+Redis. NAS `/mnt/nas/daon/`(media·upload) 사용.
+  - `/mnt/nas`가 hyunsung·realty99 **공유 마운트**임을 확인 → 서버별 하위폴더 격리 규칙 문서화(위 NAS 주의 참조).
+  - 이 서버의 고아 잔재(`scourt_auction`·`downloads`·`temp` = 옛 대법원공매 프로토타입, 양 서버 미사용) → `hyunsung/_archive_orphans/`로 이동 정리. **이 서버 NAS 폴더 규칙: `/mnt/nas/hyunsung/`** (구 wonrealty에서 개명, 이후 이 서버의 NAS 사용은 여기 하위로).
+  - **hyunsung ↔ realty99 양방향 무비번 SSH** 구성(ed25519, ausqueen). realty99→hsrealty.co.kr 접속 정상 검증(hostname `hyunsung` 확인).
 
 ## 미완료 항목
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
