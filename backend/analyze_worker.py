@@ -221,12 +221,12 @@ def run():
                                 href_val = await link.get_attribute("href")
                                 ext = None
                                 if href_val:
-                                    for e in (".pdf", ".hwp", ".doc"):
+                                    for e in (".pdf", ".hwpx", ".hwp", ".doc"):
                                         if e in href_val.lower():
                                             ext = e
                                             break
                                     if not ext:
-                                        for e in (".pdf", ".hwp", ".doc"):
+                                        for e in (".pdf", ".hwpx", ".hwp", ".doc"):
                                             if e in fname.lower():
                                                 ext = e
                                                 break
@@ -264,8 +264,8 @@ def run():
                                             "ext": attach["ext"]
                                         })
                                         
-                                        # 첫 파일(우선순위 정렬에 의해 PDF)이면서 HWP가 아닌 경우 AI 분석용 파일로 지정
-                                        if idx == 0 and attach["ext"] != '.hwp':
+                                        # 첫 파일(우선순위 정렬: PDF > DOC > HWP/HWPX)을 AI 분석용으로 지정
+                                        if idx == 0:
                                             downloaded_file_path = path
                                     except Exception as single_dl_err:
                                         logger.error(f"[Phase2] 개별 파일 다운 실패 ({prop.id}, {attach['filename']}): {single_dl_err}")
@@ -280,17 +280,15 @@ def run():
                     except Exception as e:
                         logger.error(f"상세 페이지 오류 ({prop.id}): {e}")
 
-                    # ── Gemini 분석 (분석불가 파일이면 건너뜀) ──
-                    effective_filename = attachment_filename_val or prop.attachment_filename
-                    is_hwp_attach = effective_filename and effective_filename.lower().endswith(".hwp")
+                    # ── Gemini 분석 (HWP/HWPX는 hwp5html·XML로 텍스트 추출 후 분석) ──
                     try:
-                        if is_hwp_attach:
-                            # 분석불가 파일(HWP): 메타데이터만 저장, AI 분석 없이 완료 처리
+                        if not downloaded_file_path:
+                            # 분석 가능한 첨부파일 없음: 메타데이터만 저장하고 완료 처리
                             prop.is_analyzed = True
                             prop.ai_summary = None
                             db.commit()
                             analyzed_count += 1
-                            logger.info(f"[HWP] 분석불가 파일 — 메타데이터만 저장: {prop.title[:40]}")
+                            logger.info(f"[Phase2] 첨부파일 없음 — 메타데이터만 저장: {prop.title[:40]}")
                         else:
                             extracted = analyze_bankruptcy_notice(downloaded_file_path, prop.title)
                             if not extracted or not extracted.get("summary"):

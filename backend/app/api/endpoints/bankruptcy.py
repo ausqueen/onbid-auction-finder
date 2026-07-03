@@ -254,12 +254,12 @@ async def phase2_analyze():
                             href_val = await link.get_attribute("href")
                             ext = None
                             if href_val:
-                                for e in (".pdf", ".hwp", ".doc"):
+                                for e in (".pdf", ".hwpx", ".hwp", ".doc"):
                                     if e in href_val.lower():
                                         ext = e
                                         break
                                 if not ext:
-                                    for e in (".pdf", ".hwp", ".doc"):
+                                    for e in (".pdf", ".hwpx", ".hwp", ".doc"):
                                         if e in fname.lower():
                                             ext = e
                                             break
@@ -300,7 +300,7 @@ async def phase2_analyze():
                                     })
                                     
                                     # ??일(?선?위 ?렬???해 PDF)?면??HWP가 ?닌 경우 AI 분석???일?지??
-                                    if idx == 0 and attach["ext"] != '.hwp':
+                                    if idx == 0:
                                         downloaded_file_path = path
                                 except Exception as single_dl_err:
                                     logger.error(f"[Phase2] 개별 ?일 ?운 ?패 ({prop.id}, {attach['filename']}): {single_dl_err}")
@@ -316,7 +316,7 @@ async def phase2_analyze():
                     logger.error(f"[Phase2] ?세 ?이지 ?류 ({prop.id}): {e}")
 
                 # Gemini 분석 (HWP ?일?면 분석 불? ??메??이?만 ??????료 처리)
-                is_hwp_attach = attachment_filename_val and attachment_filename_val.lower().endswith(".hwp")
+                is_hwp_attach = False  # HWP/HWPX도 hwp5html·XML 추출로 분석
                 try:
                     if is_hwp_attach:
                         # HWP 첨?: AI 분석 불?, 메??이?만 ??하?analyzed=True 처리

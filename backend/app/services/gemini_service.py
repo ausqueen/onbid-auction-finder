@@ -2,6 +2,10 @@ import os
 import json
 import logging
 import subprocess
+import re
+import html as html_lib
+import zipfile
+import tempfile
 
 import fitz  # PyMuPDF
 from google import genai
@@ -20,31 +24,97 @@ class BankruptcyExtraction(BaseModel):
     summary: str
 
 
+def _html_to_text(html_content: str) -> str:
+    """hwp5html 산출 HTML을 표 구조가 보존된 평문으로 변환합니다."""
+    # style/script/head 블록(CSS 등)은 통째로 제거
+    html_content = re.sub(r'(?is)<style[^>]*>.*?</style>', ' ', html_content)
+    html_content = re.sub(r'(?is)<script[^>]*>.*?</script>', ' ', html_content)
+    html_content = re.sub(r'(?is)<head[^>]*>.*?</head>', ' ', html_content)
+    # 표 셀/행·문단 경계를 구분자/개행으로 치환한 뒤 나머지 태그 제거
+    html_content = re.sub(r'(?is)</(td|th)>', ' | ', html_content)
+    html_content = re.sub(r'(?is)</tr>', '\n', html_content)
+    html_content = re.sub(r'(?is)</(p|div|h[1-6]|li|caption)>', '\n', html_content)
+    html_content = re.sub(r'(?is)<br\s*/?>', '\n', html_content)
+    text = re.sub(r'(?s)<[^>]+>', '', html_content)
+    text = html_lib.unescape(text)
+    text = text.replace('\r', '\n')
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n[ \t]*\n+', '\n', text)
+    return text.strip()
+
+
+def _extract_hwp(file_path: str) -> str:
+    """HWP 5.0 → hwp5html(표 보존) → 평문. 실패 시 hwp5txt로 폴백합니다."""
+    try:
+        with tempfile.TemporaryDirectory() as tmpd:
+            out_html = os.path.join(tmpd, "out.html")
+            result = subprocess.run(
+                ["hwp5html", "--html", "--output", out_html, file_path],
+                capture_output=True,
+                timeout=60,
+            )
+            if result.returncode == 0 and os.path.exists(out_html):
+                with open(out_html, encoding="utf-8", errors="ignore") as f:
+                    text = _html_to_text(f.read())
+                if len(text.strip()) >= 20:
+                    return text
+    except Exception as e:
+        logger.warning(f"hwp5html 변환 실패 → hwp5txt 폴백 ({file_path}): {e}")
+
+    # 폴백: hwp5txt (표 미보존, 본문만)
+    for encoding in ('utf-8', 'cp949', 'euc-kr'):
+        try:
+            result = subprocess.run(
+                ["hwp5txt", file_path],
+                capture_output=True,
+                text=True,
+                encoding=encoding,
+                timeout=30,
+            )
+            if result.returncode == 0 and result.stdout:
+                return result.stdout
+        except (UnicodeDecodeError, subprocess.TimeoutExpired):
+            continue
+    return ""
+
+
+def _extract_hwpx(file_path: str) -> str:
+    """HWPX(ZIP+OWPML XML)에서 표 셀 텍스트까지 포함해 평문을 추출합니다."""
+    try:
+        parts = []
+        with zipfile.ZipFile(file_path) as z:
+            names = sorted(
+                n for n in z.namelist()
+                if re.match(r'Contents/section\d+\.xml$', n)
+            )
+            for n in names:
+                xml = z.read(n).decode("utf-8", "ignore")
+                xml = re.sub(r'(?is)</(\w+:)?tc>', ' | ', xml)
+                xml = re.sub(r'(?is)</(\w+:)?tr>', '\n', xml)
+                xml = re.sub(r'(?is)</(\w+:)?p>', '\n', xml)
+                t = re.sub(r'(?s)<[^>]+>', ' ', xml)
+                parts.append(html_lib.unescape(t))
+        text = "\n".join(parts)
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n[ \t]*\n+', '\n', text)
+        return text.strip()
+    except Exception as e:
+        logger.error(f"HWPX 추출 실패 ({file_path}): {e}")
+        return ""
+
+
 def extract_text_from_file(file_path: str) -> str:
-    """HWP 파일에서 텍스트를 추출합니다. PDF는 Gemini File API로 직접 처리합니다."""
+    """HWP/HWPX 첨부에서 텍스트(표 포함)를 추출합니다. PDF는 Gemini File API로 직접 처리합니다."""
     if not os.path.exists(file_path):
         return ""
 
     ext = file_path.lower().split('.')[-1]
     text = ""
-
     try:
         if ext == 'hwp':
-            # HWP 파일은 CP949(EUC-KR) 인코딩이 일반적 - UTF-8 우선, 실패 시 CP949 재시도
-            for encoding in ('utf-8', 'cp949', 'euc-kr'):
-                try:
-                    result = subprocess.run(
-                        ["hwp5txt", file_path],
-                        capture_output=True,
-                        text=True,
-                        encoding=encoding,
-                        timeout=30,
-                    )
-                    if result.returncode == 0 and result.stdout:
-                        text = result.stdout
-                        break
-                except (UnicodeDecodeError, subprocess.TimeoutExpired):
-                    continue
+            text = _extract_hwp(file_path)
+        elif ext == 'hwpx':
+            text = _extract_hwpx(file_path)
     except Exception as e:
         logger.error(f"파일 텍스트 추출 에러 ({file_path}): {e}")
 
@@ -95,8 +165,8 @@ def analyze_bankruptcy_notice(file_path: str, title: str) -> dict:
 
     try:
         # PDF 파일이거나 텍스트가 추출되지 않은 경우 Gemini File API 직접 업로드 사용
-        if file_path and os.path.exists(file_path) and (ext == 'pdf' or len(document_text.strip()) < 50):
-            logger.info(f"네이티브 파일 업로드 모드 작동 (PDF 또는 파싱 실패): {file_path}")
+        if ext == 'pdf' and file_path and os.path.exists(file_path):
+            logger.info(f"네이티브 파일 업로드 모드 (PDF): {file_path}")
             uploaded_file = client.files.upload(file=file_path)
             contents_list.append(uploaded_file)
         else:
