@@ -6,9 +6,11 @@ import re
 import html as html_lib
 import zipfile
 import tempfile
+from datetime import datetime
 
 import fitz  # PyMuPDF
 from google import genai
+from google.genai import types
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,7 @@ class BankruptcyExtraction(BaseModel):
     manager_contact: str
     sale_deadline: str
     summary: str
+    is_recommended: bool
 
 
 def _html_to_text(html_content: str) -> str:
@@ -141,6 +144,7 @@ def analyze_bankruptcy_notice(file_path: str, title: str) -> dict:
         if ext != 'pdf':
             document_text = extract_text_from_file(file_path)
 
+    today_kst = datetime.now().strftime("%Y-%m-%d")
     prompt = f"""
     당신은 20년 경력의 파산 자산 매각 공고문을 분석하는 최고 전문가입니다.
     아래에 제공된 제목과 공고문 원본을 읽고, 다음 항목을 추출해서 한글로 반환해주세요.
@@ -151,10 +155,11 @@ def analyze_bankruptcy_notice(file_path: str, title: str) -> dict:
     2. summary 속성에는 본문/위치/가격을 종합적으로 고려하여, "이 물건이 투자/매수할 가치가 있는지"
        장단점을 포함한 전문가적 추천 관점의 요약 브리핑(3~4문장)을 작성해주세요.
     3. 본문에서 물건지의 정확한 소재지(도로명 주소 또는 지번 주소)를 찾아 "address" 속성에 문자열로 응답하세요. 주소가 여러 개면 가장 대표적인 1개만 적어주세요.
-    4. sale_deadline(매각기일 혹은 입찰마감일)은 반드시 "YYYY-MM-DD" 형식의 날짜 문자열(예: "2026-05-15")로 변환해서 응답하세요. 기일이 정해지지 않았거나 수시/상시매각인 경우 "미정"이라고 반환하세요.
+    4. sale_deadline(매각기일 혹은 입찰마감일)은 반드시 "YYYY-MM-DD" 형식의 날짜 문자열(예: "2026-05-15")로 변환해서 응답하세요. 다회차(회차별) 입찰인 경우 마지막 회차의 입찰마감일을 기입하세요. 기일이 정해지지 않았거나 수시/상시매각인 경우 "미정"이라고 반환하세요.
     5. 당신의 분석 결과, 이 물건이 일반적인 기준으로 볼 때 "투자 또는 매수할 가치가 충분한 추천 물건"에 해당하는지 여부를 true / false 로 응답하세요. (is_recommended)
     6. 결과물은 무조건 마크다운 없이 순수 JSON 형태({{}}) 여야 합니다. 다음과 같은 키를 포함하세요:
        "asset_type", "target_property", "address", "min_price", "manager_contact", "sale_deadline", "summary", "is_recommended"
+    7. 오늘 날짜는 {today_kst} (KST)입니다. sale_deadline(다회차면 마지막 회차 마감일)이 오늘보다 과거이면 이미 입찰이 마감·종료된 물건이므로, is_recommended는 반드시 false로 하고 summary 맨 앞에 "※ 이미 입찰이 마감된 물건입니다. "를 붙이세요. sale_deadline이 "미정"이면 이 규칙을 적용하지 마세요.
 
     [제목]
     {title}
@@ -176,7 +181,11 @@ def analyze_bankruptcy_notice(file_path: str, title: str) -> dict:
         time.sleep(4.5)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=contents_list
+            contents=contents_list,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=BankruptcyExtraction,
+            ),
         )
         text = response.text.replace('```json', '').replace('```', '').strip()
         result = json.loads(text)
