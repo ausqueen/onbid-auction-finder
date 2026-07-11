@@ -45,19 +45,24 @@ async def lifespan(app: FastAPI):
     try:
         root_user = db.query(User).filter(User.username == "root").first()
         if not root_user:
-            logger.info("root 관리자 계정 생성 중...")
-            new_root = User(
-                username="root",
-                hashed_password=get_password_hash("Realty!@34"),
-                name="최고관리자",
-                email="root@local.com",
-                phone="010-0000-0000",
-                is_approved=True,
-                is_superuser=True
-            )
-            db.add(new_root)
-            db.commit()
-            logger.info("root 관리자 계정이 성공적으로 생성되었습니다.")
+            # 시딩 비밀번호는 .env ROOT_INIT_PASSWORD 로만 주입(소스 하드코딩 제거).
+            # 미설정 시 root 자동생성을 스킵 — 예측가능 비밀번호로 최고관리자가 생기는 것을 차단.
+            if settings.root_init_password:
+                logger.info("root 관리자 계정 생성 중...")
+                new_root = User(
+                    username="root",
+                    hashed_password=get_password_hash(settings.root_init_password),
+                    name="최고관리자",
+                    email="root@local.com",
+                    phone="010-0000-0000",
+                    is_approved=True,
+                    is_superuser=True
+                )
+                db.add(new_root)
+                db.commit()
+                logger.info("root 관리자 계정이 성공적으로 생성되었습니다.")
+            else:
+                logger.warning("ROOT_INIT_PASSWORD 미설정 — root 관리자 자동생성 스킵.")
         else:
             logger.info("root 관리자 계정이 이미 존재합니다.")
     except Exception as e:
@@ -77,11 +82,16 @@ async def lifespan(app: FastAPI):
     logger.info("앱 종료")
 
 
+# 운영(DEBUG=false)에서는 Swagger/OpenAPI 비공개 — 무인증 API 스키마 노출 차단.
+_docs_enabled = settings.debug
 app = FastAPI(
     title=settings.app_name,
     description="온비드 공매 데이터 기반 부동산 물건 분석·추천 서비스",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 app.add_middleware(
@@ -124,7 +134,7 @@ def get_naver_key():
 
 @app.get("/api/config/vworld")
 def get_vworld_key():
-    return {"vworld_api_key": settings.vworld_api_key or "28061B90-E735-3802-9ECD-0077C4F36B50"}
+    return {"vworld_api_key": settings.vworld_api_key}
 
 
 @app.get("/api/proxy/vworld/{path:path}")
@@ -135,7 +145,7 @@ async def proxy_vworld(path: str, request: Request):
     
     # Inject Vworld key and domain if missing or blank
     if "key" not in query_params or not query_params["key"]:
-        query_params["key"] = settings.vworld_api_key or "28061B90-E735-3802-9ECD-0077C4F36B50"
+        query_params["key"] = settings.vworld_api_key
     if "domain" not in query_params:
         # Default to a safe placeholder or extract host from header
         host = request.headers.get("host", "localhost")
@@ -160,11 +170,12 @@ async def proxy_vworld(path: str, request: Request):
 
 @app.get("/health")
 def health():
+    # 무인증 헬스체크 — 정찰 정보(키 길이·물건 수) 미노출. DB 연결만 확인.
     from .database import SessionLocal
-    from .models.property import Property
+    from sqlalchemy import text
     db = SessionLocal()
     try:
-        props = db.query(Property).count()
+        db.execute(text("SELECT 1"))
     finally:
         db.close()
-    return {"status": "ok", "api_key_len": len(settings.onbid_api_key), "prop_count": props}
+    return {"status": "ok"}

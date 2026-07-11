@@ -22,6 +22,21 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error)
 })
 
+// 401(토큰 만료·무효) 자동 처리 — 토큰 제거 후 로그인 페이지로 이동.
+// 로그인/회원가입/ID·PW찾기는 raw fetch 라 이 인터셉터를 타지 않음(리다이렉트 루프 없음).
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 
 // 숫자 포맷 헬퍼
 export const formatWon = (n: number | null | undefined): string => {

@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ...database import get_db
+from ...config import get_settings
 from ...services.sync_service import sync_properties, get_last_synced_at, get_sync_progress
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+settings = get_settings()
 
 _is_syncing = False
 
@@ -13,6 +15,13 @@ _is_syncing = False
 def trigger_sync(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """수동 데이터 동기화 트리거"""
     global _is_syncing
+    # 온비드 동기화 비활성화 시(ONBID_SYNC_ENABLED=false) API 직접 호출도 차단 —
+    # 프론트 버튼만 막고 엔드포인트는 열려 있어 429 쿼터 초과가 재발하던 문제 방지.
+    if not settings.onbid_sync_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="온비드 동기화가 비활성화되어 있습니다 (ONBID_SYNC_ENABLED=false).",
+        )
     if _is_syncing:
         return {"message": "동기화가 이미 진행 중입니다", "status": "running"}
 

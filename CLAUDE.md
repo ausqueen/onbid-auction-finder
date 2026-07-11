@@ -1,5 +1,9 @@
 # hyunsung 서버 컨텍스트 (구 wonrealty, Contabo — 5.104.87.178)
 
+> ⭐ **서비스 위상(2026-07-05)**: 이 서버의 **메인 서비스 = hsrealty(WooCommerce 쇼핑몰, `/opt/hsrealty`)**.
+> **onbid-auction-finder = 서브 서비스**. 우선순위·리소스·장애대응 판단 시 **hsrealty 우선**.
+> (이 CLAUDE.md 파일은 `/opt/onbid-auction-finder/`에 위치하지만 서버 전체 컨텍스트 문서임.)
+
 ## 서버 정보
 - **호스트명**: hyunsung (구 wonrealty, 2026-07-03 변경 — 도메인 wonrealty.kr과 무관)
 - **IP**: 5.104.87.178
@@ -25,7 +29,7 @@
 | 경로 | 설명 |
 |------|------|
 | `/opt/onbid-auction-finder` | 메인 프로젝트 (GitHub clone) |
-| `/opt/onbid-auction-finder/data/onbid.db` | SQLite DB → 컨테이너 `/app/onbid.db` 로 마운트 |
+| `/opt/onbid-auction-finder/data/onbid.db` | SQLite DB → 컨테이너 `/app/data/onbid.db` (디렉터리 마운트, 2026-07-11 변경) |
 | `/opt/onbid-auction-finder/data/tmp_downloads` | PDF 첨부파일 저장소 → 컨테이너 `/app/tmp_downloads` |
 | `/opt/onbid-auction-finder/backend/.env` | 환경변수 |
 | `/opt/onbid-auction-finder/scripts/renew-cert.sh` | 인증서 자동 갱신 스크립트 |
@@ -39,8 +43,10 @@
 > `/mnt/nas/X` == NAS 실제 `/volume2/vpsshr/linux/X`. 서버 구분은 하위폴더로: **이 서버(hyunsung)=`hyunsung/`** (구 `wonrealty/`, 2026-07-03 개명), **realty99=`daon/`·`backup/`**, 공용=`abb_agent/`.
 > 이 서버(onbid)는 `/mnt/nas`를 자동으로 쓰지 않음(컨테이너·크론 미참조). `hyunsung/*`는 마이그레이션 때 수동 1회 백업본. (ABB 백업은 `/mnt/nas` NFS 경유 아님 — 별도 저장소)
 
-> ⚠️ **컨테이너 경로 주의**: 볼륨 마운트는 `./data/onbid.db:/app/onbid.db`, `./data/tmp_downloads:/app/tmp_downloads`.
-> 컨테이너 내부에 `/app/data/` 디렉터리는 **없음**. DB=`/app/onbid.db`, 첨부=`/app/tmp_downloads`.
+> ⚠️ **컨테이너 경로 주의**(2026-07-11 마운트 변경): 볼륨 마운트는 **`./data:/app/data`**(디렉터리) + `./data/tmp_downloads:/app/tmp_downloads`.
+> DB=**`/app/data/onbid.db`**(`.env` `DB_URL=sqlite:////app/data/onbid.db`), 첨부=`/app/tmp_downloads`.
+> ⚠️ **왜 디렉터리 마운트인가**: 예전 단일파일 마운트(`./data/onbid.db:/app/onbid.db`)는 SQLite `-wal/-shm`이 컨테이너 전용이라 **재빌드(컨테이너 재생성) 시 미체크포인트 WAL이 유실**됐음(#20, root 비번 재설정이 실제로 날아갔음). 디렉터리 마운트로 `-wal/-shm`이 호스트에 상주 → 유실 방지. 되돌리기 백업: `docker-compose.yml.bak.20260711`, `backend/.env.bak.20260711`, DB백업 `data/onbid.db.premount.20260711`.
+> raw sqlite3 접근(analyze_worker.py:154, bankruptcy.py:622)은 `str(engine.url)`에서 경로 유도라 DB_URL만 따라옴. dev 스크립트 `clean_db.py`·`fix_bad_ai.py`는 `__file__` 기준 하드코딩(`/app/onbid.db`)이라 이 마운트에선 안 맞음 — 사용 시 수정 필요.
 > 워커 스크립트(debug.py, download_sync_worker.py, analyze_worker.py)는 `/app/` 에 위치. 앱 패키지는 `/app/app/`.
 
 ## Docker 컨테이너
@@ -103,6 +109,30 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   nginx가 `portainer:9000` 으로 리버스 프록시 (WebSocket 지원). 볼륨 `portainer_data`.
 - **재설치 시 setup token**: `docker logs portainer | grep setup_token`
 
+## hsrealty.co.kr — NAS 쇼핑몰 (WooCommerce, 2026-07-04 라이브)
+- **경로**: `/opt/hsrealty/` (docker-compose.yml·.env·README.md·data/). `/opt`라 ABB 백업 포함. onbid와 별개 스택.
+- **스택**: WordPress 7.0(ko_KR) + WooCommerce 10.9.3 + MariaDB 11.4. compose project `hsrealty`.
+  - 컨테이너: `hsrealty-wp`(wordpress:php8.3-apache, `127.0.0.1:8083` 검증용만 노출), `hsrealty-db`(mariadb:11.4, 내부), `wpcli`(profile=cli 일회성).
+  - 네트워크: 자체 `hsrealty_default` + 외부 `onbid-auction-finder_default` 합류 → onbid-nginx가 `hsrealty-wp:80` 프록시.
+  - 데이터: `./data/db`(MariaDB)·`./data/wp`(WP코어·플러그인·업로드). 설정 KRW·KR·소수점0·Asia/Seoul.
+- **공개**: `https://hsrealty.co.kr`(+www 정규리다이렉트). onbid-nginx `wonrealty.conf`에 80/443 블록 추가(443→`proxy_pass http://hsrealty-wp:80`, X-Forwarded-Proto https). 백업 `wonrealty.conf.bak.20260704`.
+  - SSL 독립 lineage `hsrealty.co.kr`+www(만료 2026-09-26 아님 → **2026-10-02**), 기존 `certbot-renew.timer`가 전 lineage 자동갱신(webroot).
+- **명령**: `cd /opt/hsrealty && sudo docker compose ps | logs -f wordpress | restart wordpress`. wp-cli: `sudo docker compose --profile cli run --rm wpcli <cmd>`.
+- **시크릿·WP관리자**: `.env`(chmod600, git금지). 확인 `sudo grep WP_ADMIN /opt/hsrealty/.env`. 로그인 `https://hsrealty.co.kr/wp-admin/`.
+- **주의**: docker는 ausqueen sudo 필요(docker그룹 아님). WP코어는 wp-cli로 관리(이미지태그 6.7.2보다 앞선 7.0). nginx conf는 단일파일 마운트 → **⚠️ 편집기(inode 교체 방식: Edit/sed -i 등)로 수정하면 `nginx -s reload`로 반영 안 됨**(컨테이너는 시작 시점 바인딩된 옛 inode를 계속 봄. 2026-07-08 확인). 확실한 반영은 `docker restart onbid-nginx`(순단 1~2초, 전 vhost). 반영 검증: `md5sum 호스트파일` == `docker exec onbid-nginx md5sum /etc/nginx/conf.d/default.conf`. (in-place 편집만 `nginx -s reload`로 반영. nginx compose에 새 볼륨 추가 시에만 재생성 순단.)
+- **상품**: 79종 임포트 완료(카테고리·가격·이미지29). 멱등 임포터 `/opt/hsrealty/data/wp/hsrealty-import/import_products.php`(`wp eval-file`).
+- **테마**: Storefront **자식 테마 `hsrealty`**(목업 디자인 이식 — 화이트헤더+실드로고, 네이비/골드/그린, 프론트 히어로). NAS 백업 `/mnt/nas/hyunsung/temp/hsrealty_theme_backup`. 프론트=page122(전체폭)+히어로, 주메뉴 id38.
+  - ⚠️ **신규 스토어는 `woocommerce_coming_soon=yes`(store_pages_only) 기본 ON** → /shop·단일상품이 "준비중"으로 가려짐. 해제: `wp option update woocommerce_coming_soon no` (+`woocommerce_store_pages_only no`). 현재 해제됨=상점 라이브.
+  - **로그인/회원가입 화면 분리(2026-07-05)**: 기본 WooCommerce는 /my-account/에 로그인+회원가입을 2단 동시표시 → 자식 테마 오버라이드 `woocommerce/myaccount/form-login.php`로 분리(기본=로그인만, "회원가입" 버튼 `?register=true`로 전환). style.css `.hsrealty-auth*` 추가, child style ver 1.0.2. 백업 `style.css.bak.20260705`·`functions.php.bak.20260705`.
+  - **회원가입 정보 강화(2026-07-05)**: 가입폼에 이름·핸드폰 + 동의체크박스(이용약관·개인정보 필수, 마케팅 선택) + **주소(다음 우편번호 검색)** 추가. 핸드폰 형식검증(`/^01[0-9]-?\d{3,4}-?\d{4}$/`). 저장메타 billing_*·동의이력(타임스탬프)·마케팅여부. functions.php에 로직, 관리자 프로필에 가입정보 표시.
+  - **클래식 체크아웃 전환(2026-07-05)**: 체크아웃(id7)·장바구니(id6) 블록형→숏코드(`[woocommerce_checkout]`/`[woocommerce_cart]`). 블록(React)은 다음 주소검색 자동입력 불안정 → 클래식 채택. 원본 블록 백업 로컬+NAS `/mnt/nas/hyunsung/temp/hsrealty_checkout_block_backup_20260705/`.
+  - **다음(카카오) 주소검색(2026-07-05)**: 회원가입·주소편집·클래식 체크아웃 3곳. `assets/hs-address.js`(`.hs-addr-search` 클릭→`daum.Postcode` 팝업, 체크아웃/주소편집은 `#billing_postcode` 옆 버튼 JS주입). enqueue는 `is_account_page()||is_checkout()`. child style ver 1.0.4. 백업 `functions.php.bak.20260705c`.
+  - **⏳ 보류: 핸드폰 본인인증(Solapi OTP)** — 사용자가 다음에 진행. 필요: Solapi API Key+Secret+**발신번호 등록**(SMS OTP는 채널·템플릿 불필요) + 충전. → 인증번호 전송/확인+3분만료+인증 전 가입차단 구현 예정.
+  - **✅ 통신판매업 신고번호 표기(2026-07-08)**: 신고번호 **제2026-경기안산-1395호** 확정 → 푸터 사업자정보 위젯(`footer-1`의 Custom HTML `custom_html-3`, DB옵션 `widget_custom_html` i:3)에 "통신판매업 신고번호 제2026-경기안산-1395호" 추가(사업자등록번호 아래). 라이브 반영 확인. 옵션 백업=세션 스크래치패드. ⏭️ (선택) 체크아웃 페이지 하단 표기는 미적용.
+  - **✅ 고액 상품 문의 전환(2026-07-09)**: KCP 신용카드 **건당 승인 한도 500만원** 대응 → **단가 500만원 초과** 상품은 온라인 결제 대신 전화/이메일 문의로 유도. 자식테마 `functions.php`에 블록 추가(백업 `functions.php.bak.20260709b`): `hs_is_inquiry_product()`(변형상품은 최고가 변형 기준) + ①`woocommerce_is_purchasable=false`(담기버튼 자동제거·URL직접담기/결제 차단) ②단일상품 CTA(`woocommerce_single_product_summary` 우선순위31: 📞tel `031-520-5552`+✉mailto `hs@hsrealty.co.kr` 제목에 상품명 자동) ③상점 루프버튼 `woocommerce_loop_add_to_cart_link`→'구매 문의'(상세로 이동) ④안전망 `woocommerce_add_to_cart_validation`. `style.css` `.hs-inquiry-*` 추가·자식테마 ver 1.1.4→**1.1.5**(백업 `style.css.bak.20260709`). **자동 판별**(코드수정 없이 신규 고액상품에 적용). 현재 대상 2종=APM-5NODES-1Y-VIRTUAL(693만)·D4ER01-64G(543.4만). 조정=`HS_INQUIRY_THRESHOLD`(0이면 끔). 라이브 경계검증 완료(427만·7.2만은 담기 유지). **기준=상품 단가만**(사용자 선택) → ⚠️ 저가 다수 합산으로 장바구니 합계>500만 시 KCP 카드승인 실패 가능(미방어). 필요 시 `woocommerce_available_payment_gateways`/`add_to_cart_validation`로 합계 가드 추가.
+  - **✅ 고액 상품 완전 비공개(2026-07-09)**: 500만원 초과 2종을 상점/검색 숨김에서 더 나아가 **완전 비공개** 전환(사용자 요청). ①카탈로그 숨김 `catalog_visibility=hidden`(product_visibility 택소노미 `exclude-from-catalog`+`exclude-from-search`) ②`post_status=private`로 전환 → **비로그인 방문자는 직접 URL 접속도 HTTP 404 차단**(라이브 검증 완료), 관리자(ausqueen)만 열람·편집. 대상: **ID 24** APM-5NODES-1Y-VIRTUAL(693만)·**ID 80** D4ER01-64G(543.4만). 적용: `wp post update <id> --post_status=private` (+ 앞서 `wc product update <id> --catalog_visibility=hidden`) + `wp cache flush` + `wp wc tool run clear_transients`. 되돌리기=`--post_status=publish`. (문의전환 hook은 그대로 남아있으나 비공개라 노출 안 됨.)
+- **미완**: 결제(무통장→PG, 코스모스팜페이+KCP 승인대기)·상품 상세설명 실제 스펙 보강·대리점 데이터(D4ES/D4ESO) 정정·Solapi 핸드폰 본인인증.
+
 ## Antigravity CLI (agy)
 - hyunsung(구 wonrealty) 서버에 v1.0.13 설치 — `~/.local/bin/agy` (ausqueen 계정)
 - 설치: `curl -fsSL https://antigravity.google/cli/install.sh | bash`
@@ -113,7 +143,13 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - 서비스: `synology-active-backup-business-linux-service` (systemd, enabled)
 - NAS 연결: `ausqueen.synology.me`, 계정 `hyunsung567`
 - 명령: `sudo abb-cli -s`(상태) / `sudo abb-cli -c`(연결) / `sudo abb-cli -h`(도움말)
-- 호스트 볼륨 블록 백업 → `/opt/.../data`(DB·PDF) 포함. (WAL DB 일관성 위해 향후 사전 스냅샷 훅 권장)
+- 호스트 볼륨 블록 백업 → `/opt/.../data`(DB·PDF) 포함.
+- **백업 스케줄**: NAS(DSM) 제어. 작업 `hyunsung567-linux`(task id 21) = **매주 월·수·금 03:00 KST**. pre/post 스크립트 훅은 지원하나 현재 **비활성**(활성화는 DSM UI에서만 가능).
+- **✅ WAL DB 사전 정합 스냅샷(2026-07-08 구축)**: WAL DB는 블록 백업 시 crash-consistent 로만 담기므로, sqlite3 온라인 백업 API로 "단일파일 정합 사본"을 만들어 백업 세트에 포함시킴.
+  - 스크립트: `scripts/snapshot-db.sh` (호스트 python3 `sqlite3.Connection.backup()` + `PRAGMA integrity_check` 검증 + 최신 7개 회전). 산출물 `data/db_snapshots/onbid-<TS>.db`(+`onbid-latest.db` 심링크), git ignore·ABB 백업범위(/opt) 안.
+  - 스케줄: systemd `onbid-db-snapshot.timer` → **매일 02:50 KST**(ABB 03:00 백업 10분 전). 서비스 `onbid-db-snapshot.service`(oneshot). 유닛=`/etc/systemd/system/onbid-db-snapshot.{service,timer}`.
+  - 수동 실행/확인: `sudo /opt/onbid-auction-finder/scripts/snapshot-db.sh` · `systemctl list-timers onbid-db-snapshot.timer` · 로그 `/var/log/onbid-db-snapshot.log` + `journalctl -u onbid-db-snapshot`.
+  - ⏭️ (선택) 더 타이트한 결합 원하면 DSM ABB 작업 → Pre/post script 에 이 스크립트를 pre-script 로 지정(현재는 타이머 방식이라 불필요).
 
 ## GitHub
 - **Repo**: ausqueen/onbid-auction-finder (private)
@@ -127,6 +163,8 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 | Oracle | 161.33.4.54 | 구 개발/테스트 (운영 이전됨) | |
 | Contabo (운영) | 5.104.87.178 | 운영 서버 (hostname: hyunsung, 구 wonrealty) | 현재 운영. onbid + hsrealty(예정) |
 | Contabo (realty99) | 5.104.87.20 | realty99.co.kr — 금강 다온 부동산 중개 사이트(**daon**) | Next.js14+FastAPI+PostgreSQL16(daondb)+Redis, 컨테이너 `daon_*`/`realty99_*`. `/mnt/nas` NFS 공유 |
+
+> 🔧 **realty99 fstab `nofail` 추가 (2026-07-05)**: `/etc/fstab`의 NAS 라인 `defaults,_netdev` → **`defaults,_netdev,nofail`**. NAS가 부팅 시 응답 없어도 부팅이 막히지 않도록(hyunsung과 동일 정책). 백업 `/etc/fstab.bak.20260705`. `_netdev`만으로는 부족 — nofail 없으면 systemd가 마운트 대기하다 emergency mode 가능.
 
 > 🔑 **서버 간 SSH (2026-07-03)**: `hyunsung ↔ realty99` **양방향 무비번**(ed25519 키). ausqueen 계정.
 > - hyunsung→realty99: 이 서버 `~/.ssh/id_ed25519` → realty99 authorized_keys 등록.
@@ -188,8 +226,16 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
 - [x] ~~certbot 자동 갱신 설정~~ — 완료 (systemd timer)
 - [ ] VWorld API 도메인 인증 (wonrealty.kr 등록 필요 — map.vworld.kr 개발자 콘솔)
-- [ ] (권장) SSH 키 등록 후 `PasswordAuthentication no` + fail2ban
-- [ ] (권장) ABB 백업 전 WAL DB 사전 스냅샷(`sqlite3 .backup`) 훅
+- [~] (권장) SSH 하드닝 — **fail2ban 완료(2026-07-08)**, `PasswordAuthentication no`는 **보류**(사용자 PC 공개키 등록·검증 후 진행. 현재 ausqueen 등록키는 realty99→hyunsung 1개뿐이라 지금 끄면 락아웃 위험)
+  - **fail2ban 1.0.2** 설치·enable. jail=sshd(mode aggressive, maxretry 4, findtime 10m, bantime 1h→재범 점증 최대 1w), backend=systemd, banaction=nftables(전용 `table inet f2b-table`, Docker 규칙과 분리).
+    - 화이트리스트(`ignoreip`, `/etc/fail2ban/jail.local`): `127.0.0.1/8 ::1 5.104.87.20`(realty99) `5.104.87.178`(자기) `172.16.0.0/12`(docker). 확인: `sudo fail2ban-client status sshd`. 설치 직후 공격 IP 자동밴 검증됨(무차별 로그인 시도 하루 ~1.2만건 관측).
+    - **WordPress 로그인 잼 `hsrealty-wp-auth` 추가(2026-07-08)**: WooCommerce/WP 로그인 브루트포스 방어. 자식테마 `functions.php`가 로그인 실패를 `wp-content/hs-auth-fail.log`에 실제 클라이언트IP(X-Forwarded-For)로 기록 → fail2ban(filter `hsrealty-wp-auth`, backend polling)이 5회/10분 초과 시 밴. **핵심**: hsrealty는 Docker 공개포트(443)라 DNAT→FORWARD 경로로 INPUT hook 밴이 무효 → `banaction=iptables-multiport chain=DOCKER-USER`로 컨테이너 전달 지점(DOCKER-USER 체인)에 밴 삽입(엔드투엔드 검증됨). 필터 `/etc/fail2ban/filter.d/hsrealty-wp-auth.conf`.
+- [x] ~~(권장) rpcbind(포트111) 노출 제거~~ — 완료(2026-07-08). NAS가 **NFSv4.1**(rpcbind 불필요)인데 111이 공인IP 노출(DDoS 반사 벡터)이던 것 → `systemctl disable --now + mask rpcbind.socket rpcbind.service`. 포트 닫힘·NAS 마운트 정상 유지 검증.
+- **웹 보안 하드닝(2026-07-08, nginx `nginx/wonrealty.conf`, 백업 `.bak.20260708`)**: ①**Portainer(portainer.wonrealty.kr) IP 허용목록** — `allow 116.41.161.23; allow 58.225.109.232; deny all;`(9443/9000/8000은 원래 호스트 미공개, 외부통로는 이 vhost 443뿐). ②**hsrealty**: `location = /xmlrpc.php {deny all}`(403), readme/license/wp-config 차단, 보안헤더(X-Frame-Options SAMEORIGIN·X-Content-Type-Options·Referrer-Policy) 추가, `proxy_hide_header X-Powered-By`. ③전역 `server_tokens off`(nginx 버전 숨김). 반영=`docker exec onbid-nginx nginx -t && nginx -s reload`.
+  - **WP 레벨 하드닝(자식테마 `functions.php`, 백업 `.bak.20260708`)**: xmlrpc_enabled=false, 버전 generator 제거, REST `/wp/v2/users` 비로그인 차단(404), `?author=N`·작성자아카이브 → 홈 301(관리자 계정 slug 노출 차단). php -l·라이브 검증 완료.
+  - **관리자 로그인 아이디 변경(2026-07-08)**: hsrealty WP 관리자 `hsadmin` → **`ausqueen`**(realty99 blog과 통일). ID 1·비밀번호·데이터 유지, 이메일은 `hs@hsrealty.co.kr` 그대로. `wp_users.user_login`+`user_nicename` DB변경, `.env` `WP_ADMIN_USER`도 동기화. 로그인 `https://hsrealty.co.kr/wp-admin/`(IP 제한 적용된 상태).
+  - **WP 관리자 IP 제한(2026-07-08b, nginx `wonrealty.conf`, 백업 `.bak.20260708b`)**: `wp-login.php`·`/wp-admin/`을 신뢰 고정 IP `116.41.161.23`·`58.225.109.232`(SSH 성공 IP=Portainer 허용목록과 동일)만 허용, 그 외 403. **예외 공개**: `admin-ajax.php`(스토어프론트 AJAX, 정확일치 우선), `wp-cron.php`(내부크론, /wp-admin 밖). **고객 로그인 영향 없음**(고객은 `/my-account/`). 동적 모바일 IP(118.235.x)는 제외. 서버 자신은 열 필요 없음(wp-cron·admin-ajax·wp-cli로 충분, wp-cli는 nginx 우회). 다른 장소 접속 필요 시 SSH로 `allow <IP>;` 추가 후 `docker restart onbid-nginx`. 검증: 403/200 매트릭스 확인 완료.
+- [x] ~~(권장) ABB 백업 전 WAL DB 사전 스냅샷(`sqlite3 .backup`) 훅~~ — 완료 (2026-07-08, `snapshot-db.sh` + systemd 타이머 02:50 KST, ABB 섹션 참조)
 - [ ] **온비드 일일 동기화 성능 개선** (2026-06-29 진단, 수정 보류 / **현재 동기화 비활성 상태** — 위 작업이력 참조) — `sync_properties`가 느린 원인은
   Playwright가 **아니라** `backend/app/services/sync_service.py`의 **직렬 처리 구조**임.
   (참고: 온비드 동기화는 Playwright 미사용 — `onbid_client`가 OnBid OpenAPI(data.go.kr)를 httpx로 호출,

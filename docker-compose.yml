@@ -5,10 +5,25 @@ services:
     restart: unless-stopped
     env_file: ./backend/.env
     volumes:
-      - ./data/onbid.db:/app/onbid.db
+      # ⚠️ 디렉터리 마운트 — DB의 -wal/-shm 이 호스트에 상주해야 재빌드 시 WAL 유실 방지(#20 수정).
+      # DB 경로는 .env DB_URL=sqlite:////app/data/onbid.db 로 지정.
+      - ./data:/app/data
       - ./data/tmp_downloads:/app/tmp_downloads
     expose:
       - "8001"
+    # /health 헬스체크 (컨테이너 python 사용). 로그 무제한 누적 방지, 메모리 상한(hsrealty 등 이웃 보호).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 40s
+    mem_limit: 3g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   nginx:
     image: nginx:1.27-alpine

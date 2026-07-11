@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 from ...sync_status import get_status, set_status
 
 
-# ?? ?퍼 ????????????????????????????????????????????
+# ── 헬퍼 ──────────────────────────────────────────────
 
 def delete_expired_properties(db: Session):
     try:
@@ -38,29 +38,29 @@ def delete_expired_properties(db: Session):
         deleted_count = 0
         for prop in properties:
             deadline = prop.sale_deadline
-            if not deadline or deadline in ("미정", "?용 ?음"):
+            if not deadline or deadline in ("미정", "해당 없음"):
                 continue
             match = re.search(r"\d{4}-\d{2}-\d{2}", deadline)
             if match and match.group(0) < today_str:
-                logger.info(f"만료 공고 ??: {prop.title} (기일: {match.group(0)})")
+                logger.info(f"만료 공고 삭제: {prop.title} (기일: {match.group(0)})")
                 db.delete(prop)
                 deleted_count += 1
 
         if deleted_count > 0:
             db.commit()
-            logger.info(f"기일 ?과 {deleted_count}??? ?료")
+            logger.info(f"기일 경과 {deleted_count}건 삭제 완료")
     except Exception as e:
-        logger.error(f"만료 공고 ?? ?러: {e}")
+        logger.error(f"만료 공고 삭제 에러: {e}")
 
 
-# ?? Phase 1: 빠른 목록 ?집 ?????????????????????????
+# ── Phase 1: 빠른 목록 수집 ─────────────────────────────
 
 async def phase1_collect():
     """
-    공고게시???체 목록(최? 50?이지) 기본?보?빠르?DB?????
-    PDF ?운로드·Gemini 분석 ?음. is_analyzed=False????
+    공고게시판 전체 목록(최대 50페이지) 기본정보를 빠르게 DB에 저장.
+    PDF 다운로드·Gemini 분석 없음. is_analyzed=False로 저장.
     """
-    set_status(phase="collecting", message="목록 ?집 ?작...")
+    set_status(phase="collecting", message="목록 수집 시작...")
     db = SessionLocal()
     try:
         notices = await collect_all_notices(max_pages=50)
@@ -83,23 +83,23 @@ async def phase1_collect():
                 db.add(prop)
                 db.commit()
                 new_count += 1
-                set_status(phase="collecting", message=f"{new_count}???됨")
+                set_status(phase="collecting", message=f"{new_count}건 저장됨")
             except Exception as e:
                 db.rollback()
-                logger.error(f"[Phase1] DB ????러 ({info.get('title', '?')}): {e}")
+                logger.error(f"[Phase1] DB 저장 에러 ({info.get('title', '제목없음')}): {e}")
 
         total = db.query(BankruptcyProperty).count()
         set_status(phase="done", message=f"목록 수집 완료: {new_count}건 신규 저장 (DB 총 {total}건)")
         logger.info(f"[Phase1] 완료: {new_count}건 신규 저장 (DB 총 {total}건)")
 
-        # 만료/????공고 ?합??맞추?(?크?핑???느 ?도 ?상?으??행?었???만)
+        # 만료/삭제된 공고 정합성 맞추기 (스크래핑이 어느 정도 정상 진행되었을 때만)
         if len(notices) > 100:
             valid_urls = {info["notice_url"] for info in notices}
             db_props = db.query(BankruptcyProperty).all()
             deleted_count = 0
             for prop in db_props:
                 if prop.notice_url not in valid_urls:
-                    # 게시?에???려?공고??로컬 첨??일???리
+                    # 게시판에서 내려간 공고의 로컬 첨부파일도 정리
                     if prop.attachment_filename:
                         from ...services.scourt_scraper import DOWNLOAD_DIR
                         import glob
@@ -116,33 +116,33 @@ async def phase1_collect():
             
             if deleted_count > 0:
                 db.commit()
-                logger.info(f"[Phase1] 게시?에??????공고 {deleted_count}?DB ??일 ?? ?료")
+                logger.info(f"[Phase1] 게시판에서 사라진 공고 {deleted_count}건 DB·파일 삭제 완료")
 
     except Exception as e:
-        set_status(phase="error", message=f"?류: {e}")
-        logger.error(f"[Phase1] ?패: {e}")
+        set_status(phase="error", message=f"오류: {e}")
+        logger.error(f"[Phase1] 실패: {e}")
     finally:
         db.close()
 
 
-# ?? Phase 2: ?세 ?이지 메??이???싱 ?퍼 ????????????????
+# ── Phase 2: 상세 페이지 메타데이터 파싱 헬퍼 ────────────────
 
 async def _parse_detail_meta(page) -> dict:
     """
-    ?법원 공고 ?세 ?이지(RealNoticeView.work)???이블에??
-    매각기?, 관?법?? ?성?? 공고만료?? 첨??일? ?화번호??싱?니??
+    대법원 공고 상세 페이지(RealNoticeView.work)의 테이블에서
+    매각기관, 관할법원, 작성일, 공고만료일, 첨부파일명, 전화번호를 파싱합니다.
 
-    ?시 ?이?구조:
-      매각기?  | 채무??주식?사 금영???어링의 ?산관?인 ?원??
-      관?법?? | ?원?생법원
-      ?목      | ?산매각공고       조회??| 201
-      ?성??   | 2026.04.28         공고만료??| 2026.05.20
-      첨??일  | 2025?합625 주식?사 금영???어?채권매각공고??hwp
-      ?화번호  | 031-211-5902
+    예시 테이블 구조:
+      매각기관  | 채무자 주식회사 금영엔지니어링의 파산관재인 ○○○
+      관할법원  | 서울회생법원
+      제목      | 파산매각공고       조회수  | 201
+      작성일    | 2026.04.28         공고만료일 | 2026.05.20
+      첨부파일  | 2025하합625 주식회사 금영엔지니어링 채권매각공고.hwp
+      전화번호  | 031-211-5902
     """
     result = {}
     try:
-        # th-td ?으????이??싱
+        # th-td 쌍으로 행 데이터 파싱
         rows = await page.locator("table.tableWri tr").element_handles()
         for row in rows:
             ths = await row.query_selector_all("th")
@@ -154,17 +154,16 @@ async def _parse_detail_meta(page) -> dict:
                 else:
                     continue
 
-                if "매각기?" in label:
+                if "매각기관" in label:
                     result["selling_agency"] = value
                 elif "관할법원" in label or "법원" in label:
                     if not result.get("court_name"):
                         result["court_name"] = value
-                elif "?성?? in " in label:
+                elif "작성일" in label:
                     result["post_date"] = value.replace(".", "-") if "." in value else value
-                # BYPASSED SYNTAX ERROR:                 elif "공고만료?? in label or "만료?? in label:
+                elif "공고만료일" in label or "만료일" in label:
                     result["notice_expire_date"] = value.replace(".", "-") if "." in value else value
-                elif "첨??일" in label:
-                    # 첨??일 ??서 ?일?링크 ?는 ?스??추출
+                elif "첨부파일" in label:
                     a_tag = await tds[i].query_selector("a")
                     if a_tag:
                         fname = (await a_tag.inner_text()).strip()
@@ -172,208 +171,24 @@ async def _parse_detail_meta(page) -> dict:
                             result["attachment_filename"] = fname
                     elif value:
                         result["attachment_filename"] = value
-                elif "?화번호" in label or "?화" in label:
+                elif "전화번호" in label or "전화" in label:
                     result["phone_number"] = value
     except Exception as e:
-        logger.warning(f"[_parse_detail_meta] ?싱 ?패: {e}")
+        logger.warning(f"[_parse_detail_meta] 파싱 실패: {e}")
 
     return result
 
 
-# ?? Phase 2: AI 분석 (분당 8??한) ????????????????
-
-async def phase2_analyze():
-    """
-    is_analyzed=False ?????에 ???PDF ?운로드 + Gemini 분석???행.
-    분당 ~8??도 ?한 (ANALYSIS_DELAY_SEC=7.5?.
-    """
-    import asyncio
-    from ...services.scourt_scraper import ANALYSIS_DELAY_SEC
-    from playwright.async_api import async_playwright
-
-    set_status(phase="analyzing", message="AI 분석 ?작...")
-    db = SessionLocal()
-
-    try:
-        pending = db.query(BankruptcyProperty).filter(
-            BankruptcyProperty.is_analyzed == False
-        ).order_by(BankruptcyProperty.id.asc()).all()
-
-        logger.info(f"[Phase2] 분석 ??? {len(pending)}?)")
-        set_status(phase="analyzing", message=f"분석 ???{len(pending)}? 분당 8??도??작")
-
-        analyzed_count = 0
-
-        # Playwright 브라?? ?션???사?하??PDF ?운로드
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                accept_downloads=True,
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-            )
-            detail_page = await context.new_page()
-
-            for prop in pending:
-                await asyncio.sleep(ANALYSIS_DELAY_SEC)  # 분당 ~8?
-
-                downloaded_file_path = None
-                attachment_filename_val = None
-                try:
-                    await detail_page.goto(prop.notice_url, timeout=30000)
-
-                    # ?? ?세 ?이지 메??이???싱 (매각기?/?화번호/첨??일/만료?? ??
-                    try:
-                        detail_meta = await _parse_detail_meta(detail_page)
-                        if detail_meta.get("selling_agency"):
-                            prop.selling_agency = detail_meta["selling_agency"]
-                        if detail_meta.get("phone_number"):
-                            prop.phone_number = detail_meta["phone_number"]
-                        if detail_meta.get("attachment_filename"):
-                            attachment_filename_val = detail_meta["attachment_filename"]
-                            prop.attachment_filename = attachment_filename_val
-                        if detail_meta.get("notice_expire_date"):
-                            prop.notice_expire_date = detail_meta["notice_expire_date"]
-                        if detail_meta.get("post_date") and not prop.post_date:
-                            prop.post_date = detail_meta["post_date"]
-                    except Exception as meta_err:
-                        logger.warning(f"[Phase2] 메??이???싱 ?패 ({prop.id}): {meta_err}")
-
-                    # ?? 첨??일 ?운로드 ??선?위 ?렬 (PDF > DOC > HWP) ??
-                    try:
-                        links = await detail_page.locator('a[href^="javascript:download"]').element_handles()
-                        attachments = []
-                        for idx, link in enumerate(links):
-                            fname = (await link.inner_text()).strip()
-                            if not fname:
-                                fname = f"attachment_{idx}"
-                            
-                            href_val = await link.get_attribute("href")
-                            ext = None
-                            if href_val:
-                                for e in (".pdf", ".hwpx", ".hwp", ".doc"):
-                                    if e in href_val.lower():
-                                        ext = e
-                                        break
-                                if not ext:
-                                    for e in (".pdf", ".hwpx", ".hwp", ".doc"):
-                                        if e in fname.lower():
-                                            ext = e
-                                            break
-                            
-                            if ext:
-                                attachments.append({
-                                    "element": link,
-                                    "filename": fname,
-                                    "ext": ext
-                                })
-                        
-                        # PDF ?선 ?렬 (.pdf = 0, .doc = 1, .hwp = 2)
-                        if attachments:
-                            attachments.sort(key=lambda x: 0 if x["ext"] == '.pdf' else (1 if x["ext"] == '.doc' else 2))
-                            
-                            downloaded_attachments_info = []
-                            from ...services import scourt_scraper as scS
-                            
-                            for idx, attach in enumerate(attachments):
-                                try:
-                                    async with detail_page.expect_download(timeout=15000) as dl_info:
-                                        await attach["element"].click()
-                                    download = await dl_info.value
-                                    
-                                    orig_name = attach["filename"]
-                                    safe_fname = "".join([c for c in orig_name if c.isalnum() or c in (' ', '.', '_', '-')]).strip()
-                                    if not safe_fname:
-                                        safe_fname = f"attachment_{idx}{attach['ext']}"
-                                        
-                                    local_name = f"{prop.id}_{safe_fname}"
-                                    path = os.path.join(scS.DOWNLOAD_DIR, local_name)
-                                    await download.save_as(path)
-                                    
-                                    downloaded_attachments_info.append({
-                                        "filename": orig_name,
-                                        "local_filename": local_name,
-                                        "ext": attach["ext"]
-                                    })
-                                    
-                                    # ??일(?선?위 ?렬???해 PDF)?면??HWP가 ?닌 경우 AI 분석???일?지??
-                                    if idx == 0:
-                                        downloaded_file_path = path
-                                except Exception as single_dl_err:
-                                    logger.error(f"[Phase2] 개별 ?일 ?운 ?패 ({prop.id}, {attach['filename']}): {single_dl_err}")
-                            
-                            if downloaded_attachments_info:
-                                prop.attachments = downloaded_attachments_info
-                                # ?위 ?환?으??첨??일????
-                                prop.attachment_filename = downloaded_attachments_info[0]["filename"]
-                                attachment_filename_val = downloaded_attachments_info[0]["filename"]
-                    except Exception as dl_err:
-                        logger.error(f"[Phase2] ?일 ?운 ?패 ({prop.id}): {dl_err}")
-                except Exception as e:
-                    logger.error(f"[Phase2] ?세 ?이지 ?류 ({prop.id}): {e}")
-
-                # Gemini 분석 (HWP ?일?면 분석 불? ??메??이?만 ??????료 처리)
-                is_hwp_attach = False  # HWP/HWPX도 hwp5html·XML 추출로 분석
-                try:
-                    if is_hwp_attach:
-                        # HWP 첨?: AI 분석 불?, 메??이?만 ??하?analyzed=True 처리
-                        prop.is_analyzed = True
-                        prop.ai_summary = None  # ?론?엔?에??HWP ?내 ?시 ?리?
-                        db.commit()
-                        analyzed_count += 1
-                        set_status(phase="analyzing", message=f"AI 분석 {analyzed_count}??료 (HWP ?일 ?외)")
-                        logger.info(f"[Phase2] HWP ?일 ??메??이?만 ??? {prop.title[:30]}")
-                    else:
-                        extracted = analyze_bankruptcy_notice(downloaded_file_path, prop.title)
-                        if not extracted or not extracted.get("summary"):
-                            raise ValueError("Gemini API가 비어 ?는 ?약??반환?습?다. ?류?간주?여 분석 ???태????니??")
-
-                        target_str = extracted.get("target_property")
-                        if isinstance(target_str, list):
-                            target_str = ", ".join(map(str, target_str))
-
-                        prop.asset_type = extracted.get("asset_type")
-                        prop.target_property = target_str
-                        prop.address = extracted.get("address")
-                        prop.min_price = extracted.get("min_price")
-                        prop.manager_contact = extracted.get("manager_contact")
-                        prop.sale_deadline = extracted.get("sale_deadline")
-                        prop.ai_summary = extracted.get("summary")
-                        prop.is_recommended = extracted.get("is_recommended", False)
-                        prop.is_analyzed = True
-                        db.commit()
-
-                        analyzed_count += 1
-                        set_status(phase="analyzing", message=f"AI 분석 {analyzed_count}??료")
-                        logger.info(f"[Phase2] 분석 ?료: {prop.title[:30]} ({analyzed_count}/{len(pending)})")
-
-                except Exception as e:
-                    db.rollback()
-                    logger.error(f"[Phase2] Gemini ?러 ({prop.id}): {e}")
-
-            await browser.close()
-
-        set_status(phase="done", message=f"목록 수집 완료: {new_count}건 신규 저장 (DB 총 {total}건)")
-        logger.info(f"[Phase2] ?료: {analyzed_count}?분석")
-
-    except Exception as e:
-        set_status(phase="error", message=f"AI 분석 ?류: {e}")
-        logger.error(f"[Phase2] ?패: {e}")
-    finally:
-        db.close()
 
 
-# ?? 기존 deep-scan (debug.py ?환?? ??????????????
+# ── 기존 deep-scan (debug.py 전환용) ──────────────────
 
 async def sync_bankruptcy_properties():
-    """debug.py?서 ?출?는 ?거???수 ??Phase1 ?집 ?행."""
+    """debug.py에서 호출되는 레거시 함수 — Phase1 수집 수행."""
     await phase1_collect()
 
 
-# ?? API ?우?????????????????????????????????????
+# ── API 라우트 ─────────────────────────────────────
 
 @router.get("/progress", dependencies=[Depends(get_current_user)])
 def get_progress():
@@ -424,7 +239,7 @@ def _run_in_proactor_thread(coro_func, *args, **kwargs):
 
 @router.get("/check-new", dependencies=[Depends(get_current_user)])
 async def check_new_notices(db: Session = Depends(get_db)):
-    """최신 1?이지?조회?여 DB???는 ?규 공고가 ?는지 ?인"""
+    """최신 1페이지를 조회하여 DB에 없는 신규 공고가 있는지 확인"""
     import asyncio
     from ...services.scourt_scraper import collect_all_notices
     try:
@@ -517,13 +332,13 @@ def get_bankruptcy_properties(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """?산/?생 매각 공고 목록??반환?니??
-    - `address` (optional): 부?주소 문자?을 ?공?면 ?당 주소가 ?함??공고?반환?니??
-    공고게시??번호(board_no) ?림차순 ??446, 445... ?으?최신 공고 먼?.
+    """파산/회생 매각 공고 목록을 반환합니다.
+    - `address` (optional): 부분 주소 문자열을 제공하면 해당 주소가 포함된 공고를 반환합니다.
+    공고게시판 번호(board_no) 내림차순 (예: 446, 445...)으로 최신 공고 먼저.
     """
     query = db.query(BankruptcyProperty)
     if address:
-        # 주소가 ?거???목???함??경우??검??
+        # 주소가 있거나 제목에 포함된 경우만 검색
         from sqlalchemy import or_
         query = query.filter(
             or_(
@@ -544,7 +359,7 @@ def get_bankruptcy_properties(
 
     items = (
         query.order_by(
-            # SQLite??NULLS LAST 미?????case/when?로 NULL???로
+            # SQLite는 NULLS LAST 미지원 → case/when으로 NULL을 뒤로
             case((BankruptcyProperty.board_no.is_(None), 1), else_=0),
             BankruptcyProperty.board_no.desc()
         )
@@ -565,14 +380,14 @@ def download_attachment(
     db: Session = Depends(get_db),
     authorization: str | None = Header(None)
 ):
-    """로컬????된 첨??일???운로드/조회?니??"""
-    # ?? Token Verification (Header or Query Param) ??
+    """로컬에 저장된 첨부파일을 다운로드/조회합니다."""
+    # ── Token Verification (Header or Query Param) ──
     actual_token = token
     if not actual_token and authorization and authorization.startswith("Bearer "):
         actual_token = authorization.split(" ")[1]
         
     if not actual_token:
-        raise HTTPException(status_code=401, detail="?증 ?큰???효?? ?거??만료?었?니??")
+        raise HTTPException(status_code=401, detail="인증 토큰이 유효하지 않거나 만료되었습니다.")
         
     try:
         import jwt
@@ -584,10 +399,14 @@ def download_attachment(
             raise ValueError()
     except Exception:
         raise HTTPException(status_code=401, detail="인증 토큰이 유효하지 않거나 만료되었습니다.")
-    
+
+    # 승인된 사용자만 다운로드 허용 (get_current_user 와 동일 정책 — 자체 디코드 경로라 누락돼 있던 검증 보강)
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not user.is_approved:
+        raise HTTPException(status_code=403, detail="다운로드 권한이 없습니다.")
+
     # 자동 읽음(체크) 처리 추가
     try:
-        user = db.query(User).filter(User.username == username).first()
         if user:
             existing_read = db.query(UserReadBankruptcy).filter(
                 UserReadBankruptcy.user_id == user.id,
@@ -610,7 +429,7 @@ def download_attachment(
     except Exception:
         pass
 
-    # attachments가 None?데 DB???제 JSON???을 경우 직접 sqlite3??백
+    # attachments가 None인데 DB에 실제 JSON이 있을 경우 직접 sqlite3로 폴백
     if prop.attachments is None:
         try:
             import sqlite3 as _sqlite3, json as _json
@@ -642,30 +461,30 @@ def download_attachment(
             
         file_path = os.path.join(DOWNLOAD_DIR, local_filename)
         if not os.path.exists(file_path):
-            # 1. property_title 기반 ?일명이 ?는지 ?선 ?인
+            # 1. property_title 기반 파일명이 있는지 우선 확인
             safe_title = prop.title.replace("/", "_").replace("\\", "_")[:30]
             title_based_filename = f"{property_id}_{safe_title}{filename[-4:]}"
             title_based_path = os.path.join(DOWNLOAD_DIR, title_based_filename)
             if os.path.exists(title_based_path):
                 file_path = title_based_path
             else:
-                # 2. ??드카드 매칭 ?백 (?일??워???선, ??? ?워??차선)
+                # 2. 와일드카드 매칭 폴백 (파일명 키워드 우선, ID 키워드 차선)
                 search_pattern = os.path.join(DOWNLOAD_DIR, f"{property_id}_*{filename[-4:]}")
                 files_found = glob.glob(search_pattern)
-                # _OLD_ ?일 ?외
+                # _OLD_ 파일 제외
                 files_found = [f for f in files_found if not os.path.basename(f).startswith('_OLD_')]
                 if files_found:
                     matched_file = None
                     clean_fname = "".join([c for c in filename if c.isalnum()]).strip()
                     clean_title = "".join([c for c in prop.title if c.isalnum()]).strip()
-                    # ?일??워???선 매칭
+                    # 파일명 키워드 우선 매칭
                     for f in files_found:
                         f_base = os.path.basename(f)
                         clean_f_base = "".join([c for c in f_base if c.isalnum()]).strip()
                         if clean_fname and clean_fname in clean_f_base:
                             matched_file = f
                             break
-                    # ??? ?워??차선 매칭
+                    # ID 키워드 차선 매칭
                     if not matched_file:
                         for f in files_found:
                             f_base = os.path.basename(f)
@@ -675,7 +494,7 @@ def download_attachment(
                                 break
                     file_path = matched_file if matched_file else files_found[0]
                 else:
-                    raise HTTPException(status_code=404, detail="?버???일??존재?? ?습?다.")
+                    raise HTTPException(status_code=404, detail="서버에 파일이 존재하지 않습니다.")
         
         resp = FileResponse(
             path=file_path,
@@ -688,25 +507,25 @@ def download_attachment(
         return resp
     else:
         if not prop.attachment_filename:
-            raise HTTPException(status_code=404, detail="첨??일 ?보?찾을 ???습?다.")
+            raise HTTPException(status_code=404, detail="첨부파일 정보를 찾을 수 없습니다.")
             
-        # 1. ?일?기반 경로 ?인
+        # 1. 파일명 기반 경로 확인
         safe_fname = "".join([c for c in prop.attachment_filename if c.isalnum() or c in (' ', '.', '_', '-')]).strip()
         file_path = os.path.join(DOWNLOAD_DIR, f"{property_id}_{safe_fname}")
         
-        # 2. 존재?? ?으???? 기반 경로 ?인
+        # 2. 존재하지 않으면 ID 기반 경로 확인
         if not os.path.exists(file_path):
             safe_title = prop.title.replace("/", "_").replace("\\", "_")[:30]
             title_based_path = os.path.join(DOWNLOAD_DIR, f"{property_id}_{safe_title}{prop.attachment_filename[-4:]}")
             if os.path.exists(title_based_path):
                 file_path = title_based_path
         
-        # 3. 그래??존재?? ?으?glob ?백
+        # 3. 그래도 존재하지 않으면 glob 폴백
         if not os.path.exists(file_path):
             search_pattern = os.path.join(DOWNLOAD_DIR, f"{property_id}_*.*")
             files = glob.glob(search_pattern)
             if not files:
-                raise HTTPException(status_code=404, detail="?버???일??존재?? ?습?다.")
+                raise HTTPException(status_code=404, detail="서버에 파일이 존재하지 않습니다.")
             
             matched_file = None
             clean_title = "".join([c for c in prop.title if c.isalnum()]).strip()

@@ -52,3 +52,8 @@ debug_log.txt
 certbot/
 data/
 nginx/*.bak.*
+
+# 백업본 (롤백용 — 절대 커밋 금지, .env.bak 등 시크릿 포함 가능)
+*.bak
+*.bak*
+.last_boot_before_reboot
