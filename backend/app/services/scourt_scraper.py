@@ -16,7 +16,7 @@ import logging
 import asyncio
 import sys
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 if sys.platform == 'win32':
     try:
@@ -165,12 +165,14 @@ async def _go_next_page(list_page: Page, pg: int) -> bool:
 
 # ── Phase 1: 전체 목록 빠른 수집 ─────────────────
 
-async def collect_all_notices(max_pages: int = 50) -> List[Dict]:
+async def collect_all_notices_ex(max_pages: int = 200) -> Tuple[List[Dict], bool]:
     """
     Phase 1: PDF 다운로드/Gemini 없이 공고게시판 전체 목록 기본정보만 수집.
-    반환 형식: [{"title", "court_name", "post_date", "notice_url"}, ...]
+    반환: (items, reached_end). reached_end=True 는 마지막 빈 페이지까지 도달(전체 수집 완료).
+    max_pages 캡·렌더/이동 실패로 중단되면 False(부분 수집) → 호출부는 삭제 정합성 스킵 권장.
     """
     all_items: List[Dict] = []
+    reached_end = False
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -198,12 +200,14 @@ async def collect_all_notices(max_pages: int = 50) -> List[Dict]:
                 items = await _parse_page_rows(list_page)
                 if not items:
                     logger.info(f"[Phase1] 페이지 {pg}: 항목 없음 → 마지막 페이지")
+                    reached_end = True
                     break
 
                 all_items.extend(items)
                 logger.info(f"[Phase1] 페이지 {pg}: {len(items)}건 수집 (누계: {len(all_items)}건)")
 
                 if pg >= max_pages:
+                    logger.warning(f"[Phase1] max_pages({max_pages}) 도달 — 게시판에 더 남았을 수 있음(부분 수집)")
                     break
 
                 if not await _go_next_page(list_page, pg + 1):
@@ -215,8 +219,14 @@ async def collect_all_notices(max_pages: int = 50) -> List[Dict]:
         finally:
             await browser.close()
 
-    logger.info(f"[Phase1] 수집 완료: 총 {len(all_items)}건")
-    return all_items
+    logger.info(f"[Phase1] 수집 완료: 총 {len(all_items)}건 (전체수집={reached_end})")
+    return all_items, reached_end
+
+
+async def collect_all_notices(max_pages: int = 200) -> List[Dict]:
+    """하위호환 래퍼 — 항목 리스트만 반환(reached_end 무시)."""
+    items, _ = await collect_all_notices_ex(max_pages)
+    return items
 
 
 # ── Phase 2: 상세 페이지 + PDF 다운로드 (기존 legacy) ──

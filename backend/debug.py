@@ -44,7 +44,7 @@ def run():
     )
 
     async def main():
-        from app.services.scourt_scraper import collect_all_notices
+        from app.services.scourt_scraper import collect_all_notices_ex
         from app.database import SessionLocal
         from app.models.bankruptcy import BankruptcyProperty
         from app.sync_status import set_status
@@ -66,7 +66,7 @@ def run():
 
             # ── Step B: 공고게시판 전체 목록 수집
             logger.info("[Phase1] 공고게시판 목록 수집 시작")
-            notices = await collect_all_notices(max_pages=50)
+            notices, reached_end = await collect_all_notices_ex(max_pages=200)
             logger.info(f"[Phase1] 수집 완료: {len(notices)}건")
 
             new_count = 0
@@ -107,8 +107,10 @@ def run():
                 f"[Phase1] 완료: {new_count}건 신규 저장 / {updated_count}건 board_no 갱신 | DB 총 {total}건"
             )
 
-            # 만료/삭제된 공고 정합성 맞추기 (스크래핑이 정상적으로 수행되었을 때만)
-            if len(notices) > 50:
+            # 만료/삭제된 공고 정합성 맞추기 — 전체 수집(reached_end)+충분량일 때만(부분 수집 시 대량 오삭제 방지)
+            if not reached_end:
+                logger.warning("[Phase1] 목록 부분 수집(캡/실패) — 삭제 정합성 스킵(오삭제 방지)")
+            if reached_end and len(notices) > 50:
                 valid_urls = {info["notice_url"] for info in notices}
                 db_props = db.query(BankruptcyProperty).all()
                 deleted_count = 0

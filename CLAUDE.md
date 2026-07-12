@@ -252,6 +252,11 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - **버그 수정**: `onbid_client._parse_datetime` 12자리(YYYYMMDDHHMM) 미처리 + 9999 sentinel → 수정. 이제 bid_end_dt 채워짐.
 - **1회 실측(2026-07-12)**: 후보 300 중 170 검증(이후 상세 429=당일 내 테스트로 쿼터 소진) → **만료 26건 정리**, 활성확인 144(bid_end 복구). 후보 총 ~2181건이라 **스케줄 잡이 며칠에 걸쳐 점진 정리**(하루 500 상한). ⚠️ data.go.kr 상세 개발키 **일일 쿼터 ≈1000** 확인됨.
 
+### 대법원 파산 Phase1 수집 캡·삭제 정합 수정(2026-07-12)
+- **① 500 캡 제거**: `scourt_scraper.collect_all_notices`가 `max_pages=50`(=500건)에서 잘리던 것 → 게시판 실제 505건(51.5페이지)이라 51페이지 5건 누락. `debug.py`·`bankruptcy.py:phase1_collect` 호출을 **max_pages=200**으로 상향(빈 페이지에서 자동 종료하므로 실행시간 영향 없음). 검증: 505건 전량 수집(누락 0), DB 500→505.
+- **② 삭제 오작동 방지**: 기존 삭제 정합(스크랩 목록에 없는 DB공고 삭제)이 `len(notices)>50/100`만 확인 → 캡/부분수집 시 **아직 활성인데 창 밖 공고를 대량 오삭제** 위험. `collect_all_notices_ex`가 **reached_end(마지막 빈 페이지 도달=전체 수집)** 반환 → 삭제는 `reached_end and len>N`일 때만 실행, 부분 수집이면 스킵(로그 경고). 하위호환: `collect_all_notices`(리스트 반환)는 래퍼로 유지(1페이지 프리뷰 등 무영향).
+- 별도 `delete_expired_notices`(sale_deadline 기일 경과 삭제, bankruptcy.py)는 정상 로직이라 유지. 백업 `.bak.20260712`.
+
 ## 미완료 항목
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
 - [x] ~~certbot 자동 갱신 설정~~ — 완료 (systemd timer)

@@ -19,7 +19,7 @@ from ...models.read import UserReadBankruptcy
 from ...schemas.bankruptcy import BankruptcyPropertyResponse
 from fastapi.responses import FileResponse
 from fastapi import HTTPException, Header
-from ...services.scourt_scraper import collect_all_notices, scrape_bankruptcy_notices
+from ...services.scourt_scraper import collect_all_notices, collect_all_notices_ex, scrape_bankruptcy_notices
 from ...services.gemini_service import analyze_bankruptcy_notice
 from ...api.endpoints.auth import get_current_user
 
@@ -63,7 +63,7 @@ async def phase1_collect():
     set_status(phase="collecting", message="목록 수집 시작...")
     db = SessionLocal()
     try:
-        notices = await collect_all_notices(max_pages=50)
+        notices, reached_end = await collect_all_notices_ex(max_pages=200)
         new_count = 0
         for info in notices:
             try:
@@ -92,8 +92,10 @@ async def phase1_collect():
         set_status(phase="done", message=f"목록 수집 완료: {new_count}건 신규 저장 (DB 총 {total}건)")
         logger.info(f"[Phase1] 완료: {new_count}건 신규 저장 (DB 총 {total}건)")
 
-        # 만료/삭제된 공고 정합성 맞추기 (스크래핑이 어느 정도 정상 진행되었을 때만)
-        if len(notices) > 100:
+        # 만료/삭제된 공고 정합성 맞추기 — 전체 수집(reached_end)+충분량일 때만(부분 수집 시 대량 오삭제 방지)
+        if not reached_end:
+            logger.warning("[Phase1] 목록 부분 수집(캡/실패) — 삭제 정합성 스킵(오삭제 방지)")
+        if reached_end and len(notices) > 100:
             valid_urls = {info["notice_url"] for info in notices}
             db_props = db.query(BankruptcyProperty).all()
             deleted_count = 0
