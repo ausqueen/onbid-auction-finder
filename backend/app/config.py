@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     # 국토부 실거래가 API
     molit_api_key: str = ""
     molit_base_url: str = "https://apis.data.go.kr/1613000"
+    # 국토부 토지 실거래 API 미구독(403) — 기본 스킵. 구독 후 .env MOLIT_LAND_ENABLED=true 로 활성화
+    molit_land_enabled: bool = False
 
     # Gemini 파산 공고 분석 API
     gemini_api_key: str = ""
@@ -35,6 +37,14 @@ class Settings(BaseSettings):
     # 온비드 일일 동기화 on/off 플래그 (2026-06-29 비활성화: data.go.kr 상세 API 429 쿼터 초과 이슈)
     # 재개하려면 .env 에 ONBID_SYNC_ENABLED=true 설정 후 백엔드 재빌드·재기동
     onbid_sync_enabled: bool = False
+    # 온비드 상세 조회 쿼터 방어(2026-07-12): 증분 동기화 + 일일 상세 호출 상한 + 429 백오프
+    onbid_detail_daily_limit: int = 800   # 1회 동기화당 상세(getRlstDtlInf2) 호출 상한. 개발키 일일 쿼터(≈1000) 방어
+    onbid_detail_delay: float = 0.4       # 상세 조회 간 딜레이(초)
+    # 활성상태 검증(만료 정리) 잡(2026-07-12) — 상세 API로 사라진(낙찰/취소) 물건만 is_active=False 처리.
+    # 공매는 다회 유찰로 수개월 지속 → updated_at 노후만으론 종료 아님. 상세 not-found 일 때만 만료.
+    onbid_verify_enabled: bool = True
+    onbid_verify_stale_days: int = 21     # updated_at 이 이 일수↑ 오래된 is_active 물건만 검증 후보
+    onbid_verify_max_checks: int = 500    # 1회 실행 상세 검증 상한(개발키 일일 쿼터≈1000 방어)
 
     # 분석 파라미터
     min_gap_pct: float = 10.0     # 최소 Gap% (시세 대비 할인율)

@@ -48,13 +48,18 @@ def _parse_float(value: str) -> Optional[float]:
 
 
 def _parse_datetime(value: str) -> Optional[datetime]:
-    """온비드 날짜 형식 파싱 (YYYYMMDDHHMMSS 또는 YYYYMMDD)"""
+    """온비드 날짜 형식 파싱 (YYYYMMDDHHMMSS / YYYYMMDDHHMM / YYYYMMDD).
+    미scheduled 회차 sentinel(9999...)은 None 처리. (2026-07-12: 12자리 미처리 버그 수정)"""
     if not value:
         return None
     try:
         value = str(value).strip()
+        if value.startswith("9999"):
+            return None  # 미정 회차 sentinel
         if len(value) >= 14:
             return datetime.strptime(value[:14], "%Y%m%d%H%M%S")
+        elif len(value) == 12:
+            return datetime.strptime(value[:12], "%Y%m%d%H%M")
         elif len(value) == 8:
             return datetime.strptime(value[:8], "%Y%m%d")
         return None
@@ -224,10 +229,14 @@ def fetch_property_detail(notice_no: str) -> dict:
         "resultType": "xml",
     }
 
-    result = {"description": "", "land_category": None, "image_url": None}
+    result = {"description": "", "land_category": None, "image_url": None, "_rate_limited": False}
     try:
         with httpx.Client(timeout=30.0) as client:
             response = client.get(url, params=params)
+            if response.status_code == 429:
+                logger.warning(f"온비드 상세 429(쿼터 초과) {notice_no} — 상세 조회 중단 신호")
+                result["_rate_limited"] = True
+                return result
             response.raise_for_status()
 
         root = ET.fromstring(response.text)
@@ -264,6 +273,10 @@ def fetch_property_detail(notice_no: str) -> dict:
         if poto_url:
             result["image_url"] = poto_url
 
+    except httpx.HTTPStatusError as e:
+        if e.response is not None and e.response.status_code == 429:
+            result["_rate_limited"] = True
+        logger.error(f"온비드 상세 조회 오류 {notice_no}: {e}")
     except Exception as e:
         logger.error(f"온비드 상세 조회 오류 {notice_no}: {e}")
 
@@ -289,8 +302,30 @@ def fetch_all_properties(max_pages: int = 10) -> list[dict]:
         logger.info(f"온비드 수집 누계: {len(all_items)}건 (페이지 {page}/{max_pages})")
         time.sleep(0.5)  # 공공 API 서버 부하 방지 딜레이
 
-    logger.info(f"온비드 전체 수집 완료: {len(all_items)}건")
-    return all_items
+    # notice_no(=cltrMngNo) 기준 중복 제거. 온비드 목록은 동일 물건의 회차별 예정가를 여러 행으로 반환한다.
+    # API 행 순서에 의존하지 않도록, 회차 중 "최저가(최종 회차)" 행을 결정론적으로 선택한다.
+    # (기존 last-write-wins 가 내림차순 특성상 사실상 최저가를 저장하던 동작과 일치 + 실행 간 안정)
+    best: dict = {}
+    for it in all_items:
+        nn = it.get("notice_no")
+        if not nn:
+            continue
+        mb = it.get("min_bid_price") or 0
+        mb_key = mb if mb > 0 else float("inf")   # 가격 결측(0)은 최저가로 오인하지 않도록 뒤로
+        cur = best.get(nn)
+        if cur is None:
+            best[nn] = it
+        else:
+            cur_mb = cur.get("min_bid_price") or 0
+            cur_key = cur_mb if cur_mb > 0 else float("inf")
+            if mb_key < cur_key:
+                best[nn] = it
+    deduped = list(best.values())
+
+    logger.info(
+        f"온비드 전체 수집 완료: {len(all_items)}건 → 중복 제거 후 {len(deduped)}건"
+    )
+    return deduped
 
 
 def _get_mock_properties() -> list[dict]:

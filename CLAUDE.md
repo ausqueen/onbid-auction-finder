@@ -222,6 +222,36 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   - 이 서버의 고아 잔재(`scourt_auction`·`downloads`·`temp` = 옛 대법원공매 프로토타입, 양 서버 미사용) → `hyunsung/_archive_orphans/`로 이동 정리. **이 서버 NAS 폴더 규칙: `/mnt/nas/hyunsung/`** (구 wonrealty에서 개명, 이후 이 서버의 NAS 사용은 여기 하위로).
   - **hyunsung ↔ realty99 양방향 무비번 SSH** 구성(ed25519, ausqueen). realty99→hsrealty.co.kr 접속 정상 검증(hostname `hyunsung` 확인).
 
+## 2026-07-12 작업 이력 — 온비드 공매 추천 서비스 재개(429 원인 제거 + 증분 동기화)
+2026-06-29에 data.go.kr OnBid **상세 API 429(호출 쿼터 초과)**로 비활성했던 온비드 일일 동기화를, **근본 원인(매 실행 전건 상세 재조회)을 제거**하고 재개함.
+
+- **근본 원인**: `sync_properties`가 매 실행마다 현재 목록 전건(`max_pages=50`×100=최대 5000행)에 `fetch_property_detail`을 무조건 호출 → 개발키 일일 쿼터 초과. (진단: DB 3538건 전부 이미 `description` 보유 → 전건 상세 재조회는 순수 낭비였음.)
+- **수정(4가지, 백업 `.bak.20260712*`)**:
+  1. **증분 상세 조회** — `sync_service._needs_detail`: 상세(설명/지목/이미지)는 공고당 1회면 충분하므로 **신규이거나 설명 결측일 때만** 호출. 결과: 정기 실행 상세 호출 **≈0건**(검증됨) → 429 구조적 소멸.
+  2. **처리/스킵 분리** — `_needs_process`: 신규·분석없음·설명결측·가격/회차변동일 때만 upsert+시세+분석. **변경 없는 물건은 molit·분석 전체 스킵**.
+  3. **목록 중복 결정론적 dedup** — 온비드 목록은 동일 물건(`cltrMngNo`)의 **회차별 예정가를 여러 행(내림차순)**으로 반환(예: 1물건 7행). `fetch_all_properties`가 `notice_no`별 **최저가(최종 회차) 행을 선택**(순서 무관·실행 간 안정 — 두 번 fetch 시 불일치 0건 검증). 5000행→**unique 1904건**. (기존 last-write-wins가 사실상 최저가를 저장하던 동작과 일치 → 분석 의미 보존.)
+  4. **안전망** — 상세 호출 일일 상한 `onbid_detail_daily_limit=800` + `fetch_property_detail` **429 감지 시 이번 실행 상세 중단**(목록 데이터로 계속, 나머지는 다음 실행 픽업). 시세 **실행내 캐시**(동일 지역·면적 중복조회 제거). molit **토지 API 미구독(403) 스킵**(`molit_land_enabled=False`, 403 로그 홍수 제거).
+- **재개 스위치**:
+  - 백엔드: `backend/.env`에 `ONBID_SYNC_ENABLED=true` 추가 → `docker compose build backend && up -d backend`. 스케줄러 로그 `Added job "온비드 일일 동기화"` 확인(매일 **09:00 KST**).
+  - 프론트: `frontend/src/pages/Dashboard.tsx` `COLLECTION_DISABLED = false` → `cd frontend && npm install --legacy-peer-deps && npm run build`(dist 즉시 서빙).
+- **검증**: 수동 실행 다회 — 429 **0건**, errors **0**, 상세호출 0, dedup 안정성 100%. 재개 직후 내 테스트로 오염된 가격값을 정합 복구하는 **1회성 full 동기화** 실행(이후 정기 실행은 대부분 스킵되어 수 분 내 완료).
+- **전남광주통합특별시 처리(2026-07-12)**: 온비드가 `sido="전남광주통합특별시"`(**2026-07-01 실제 출범**한 광주·전남 통합 정식 행정구역, 5시 5구 17군) 반환 → 로그에 `LAWD_CD 매핑 실패` 경고 도배 + 시세 스킵되던 것.
+  - **✅ 매핑 경고 제거**: `lawd_codes.normalize_sido`가 조회 시점에 sigungu로 환원(광주 자치구 동/서/남/북/광산구→광주광역시, 그 외→전라남도)해 옛 LAWD_CD 매칭 → "매핑 실패" 경고 사라짐. stored sido는 정식명 유지(덮어쓰지 않음). 영향 199건 재분석 완료.
+  - **✅ 신규 법정동코드 확보·추가로 시세 복구**: 통합으로 옛 광주(29)/전남(46) 코드는 molit에서 폐지(전월 0건)되고 **시도 프리픽스 `12`로 재편**됨. molit 실거래 동네이름(umdNm)으로 전 시군구를 실증 매핑(2026-07-12) → `lawd_codes._MERGED_LAWD`(표준 시도명 키, resolve에서 우선 적용) 추가. 매핑(시·구·군 순):
+    - 시: 목포12110·여수12130·순천12150·나주12170·광양12190
+    - 구: 동구12210·서구12240·남구12270·북구12300·광산구12330
+    - 군: 담양12710·곡성12720·구례12730·고흥12740·보성12750·화순12760·장흥12770·강진12780·해남12790·영암12800·무안12810·함평12820·영광12830·장성12840·완도12850·진도12860·신안12870
+    - **검증**: 목포 아파트→12110→시세 1.85억, 광주 서구→12240→3.45억 등 정상. 199건 재backfill → **49건 실거래 시세 부여**(나머지 150건은 토지/임야/전답이라 토지 API 미구독으로 제외). ⚠️ 신규 시군구 추가(향후 통합시 발표)나 신안 등 코드는 필요 시 `_MERGED_LAWD` 보강.
+- 관련 파일: `sync_service.py`(재작성)·`onbid_client.py`(dedup·429감지)·`molit_client.py`(토지 스킵)·`config.py`(신규 설정). ⚠️ **로컬 수정, GitHub 미push** 상태(2026-06-29 비활성 변경과 동일).
+
+### 종료 물건 정리(활성상태 검증) — 상세 API 검증 방식
+"온비드에서 사라진(낙찰/취소) 물건이 추천에 남는가?" 점검 결과 **정리 로직이 아예 없었음**(추천/목록 API는 `is_active==True`만 노출하는데, `is_active`가 upsert마다 True로만 세팅되고 False로 내려가는 코드가 없음 → 전건 4085 True).
+- **왜 단순 판정이 불가**: ① 목록이 5만+행(500+페이지)인데 `max_pages=50`으로 앞 window만 수집 → "목록에 없음=종료" 불가. ② 목록의 `cltrBidEndDt`는 미scheduled 회차가 sentinel `29991230…`이고 12자리라 `_parse_datetime`이 **전건 None**으로 버림(파싱 버그였음). 공매는 다회 유찰로 수개월 지속 → updated_at 노후도 종료 아님(오래된 표본 다수가 여전히 활성).
+- **채택**: 절대 신호인 **상세 API 존재 여부**만 사용. `verify_stale_active`(신규 `services/maintenance.py`)가 오래(updated_at) 미갱신 `is_active` 물건을 상세 조회 → **not-found(resultCode≠00/item 없음)일 때만 `is_active=False`**(활성 오판 0). 존재하면 `bid_end_dt` 갱신 + updated_at 갱신(재검증 유예). 429 감지 시 즉시 중단, `onbid_verify_max_checks`(기본 500)로 1회 호출량 제한.
+- **스케줄**: `scheduler.py` 잡 `verify_stale_active` = **매일 10:30 KST**(09:00 동기화가 상세 ≈0건이라 상세 쿼터 여유). 설정 `onbid_verify_enabled/stale_days(21)/max_checks(500)`.
+- **버그 수정**: `onbid_client._parse_datetime` 12자리(YYYYMMDDHHMM) 미처리 + 9999 sentinel → 수정. 이제 bid_end_dt 채워짐.
+- **1회 실측(2026-07-12)**: 후보 300 중 170 검증(이후 상세 429=당일 내 테스트로 쿼터 소진) → **만료 26건 정리**, 활성확인 144(bid_end 복구). 후보 총 ~2181건이라 **스케줄 잡이 며칠에 걸쳐 점진 정리**(하루 500 상한). ⚠️ data.go.kr 상세 개발키 **일일 쿼터 ≈1000** 확인됨.
+
 ## 미완료 항목
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
 - [x] ~~certbot 자동 갱신 설정~~ — 완료 (systemd timer)
@@ -236,12 +266,6 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   - **관리자 로그인 아이디 변경(2026-07-08)**: hsrealty WP 관리자 `hsadmin` → **`ausqueen`**(realty99 blog과 통일). ID 1·비밀번호·데이터 유지, 이메일은 `hs@hsrealty.co.kr` 그대로. `wp_users.user_login`+`user_nicename` DB변경, `.env` `WP_ADMIN_USER`도 동기화. 로그인 `https://hsrealty.co.kr/wp-admin/`(IP 제한 적용된 상태).
   - **WP 관리자 IP 제한(2026-07-08b, nginx `wonrealty.conf`, 백업 `.bak.20260708b`)**: `wp-login.php`·`/wp-admin/`을 신뢰 고정 IP `116.41.161.23`·`58.225.109.232`(SSH 성공 IP=Portainer 허용목록과 동일)만 허용, 그 외 403. **예외 공개**: `admin-ajax.php`(스토어프론트 AJAX, 정확일치 우선), `wp-cron.php`(내부크론, /wp-admin 밖). **고객 로그인 영향 없음**(고객은 `/my-account/`). 동적 모바일 IP(118.235.x)는 제외. 서버 자신은 열 필요 없음(wp-cron·admin-ajax·wp-cli로 충분, wp-cli는 nginx 우회). 다른 장소 접속 필요 시 SSH로 `allow <IP>;` 추가 후 `docker restart onbid-nginx`. 검증: 403/200 매트릭스 확인 완료.
 - [x] ~~(권장) ABB 백업 전 WAL DB 사전 스냅샷(`sqlite3 .backup`) 훅~~ — 완료 (2026-07-08, `snapshot-db.sh` + systemd 타이머 02:50 KST, ABB 섹션 참조)
-- [ ] **온비드 일일 동기화 성능 개선** (2026-06-29 진단, 수정 보류 / **현재 동기화 비활성 상태** — 위 작업이력 참조) — `sync_properties`가 느린 원인은
-  Playwright가 **아니라** `backend/app/services/sync_service.py`의 **직렬 처리 구조**임.
-  (참고: 온비드 동기화는 Playwright 미사용 — `onbid_client`가 OnBid OpenAPI(data.go.kr)를 httpx로 호출,
-   시세는 `molit_client` 국토부 API. Playwright는 대법원 스크래핑·`onbid_crawler` 보증금 추출에만 사용.)
-  병목 3가지: ① 물건마다 `time.sleep(0.3)`(sync_service.py:95) → ~2,400건이면 sleep만 ~12분,
-  ② 상세(`fetch_property_detail`)·시세를 1건씩 **순차 HTTP 호출**, ③ 매일 **전체 재조회**(증분 아님).
-  개선안(효과순): **증분 동기화**(변경분만 상세 조회) > **상세·시세 병렬화**(httpx async/스레드풀 5~10 동시) >
-  sleep 축소 > 시세 캐싱. ⚠️ 선행 확인: **data.go.kr 발급키 일일 호출쿼터/TPS**(현 0.3s 딜레이가 그 방어로 추정).
-  로그의 `지원하지 않는 시도: …`는 에러 아님 — `molit_client.py:93`, 미지원 시·도 시세 조회 스킵 경고.
+- [x] ~~**온비드 일일 동기화 성능 개선 + 429 원인 제거**~~ — **완료·재개(2026-07-12, 아래 작업이력 참조)**. 증분 동기화로 상세 API 호출을 신규·결측 물건에만 한정(전건 재조회 폐지) → 429 구조적 소멸. 목록 중복(회차별 예정가 다행) 결정론적 dedup + 시세 실행내 캐시 + 상세 일일 상한/429 백오프 추가.
+  로그의 `지원하지 않는 시도: …`는 에러 아님 — `molit_client.py`, 미지원 시·도 시세 조회 스킵 경고.
+  `전남광주통합특별시`(2026-07-01 출범 광주·전남 통합) — `normalize_sido`로 매핑 경고 제거 + 신규 법정동코드(프리픽스 12) 실증·매핑(`_MERGED_LAWD`)으로 시세 복구 완료. 위 2026-07-12 이력의 전남광주 항목 참조.

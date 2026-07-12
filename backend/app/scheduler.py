@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from .database import SessionLocal
 from .services.sync_service import sync_properties
+from .services.maintenance import verify_stale_active
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,23 @@ def _scheduled_sync():
         logger.info(f"스케줄러: 자동 동기화 완료 - {result}")
     except Exception as e:
         logger.error(f"스케줄러: 동기화 오류 - {e}")
+    finally:
+        db.close()
+
+
+def _scheduled_verify():
+    """스케줄러: 온비드 물건 활성상태 검증(만료 정리) — 상세 API로 사라진 물건만 is_active=False."""
+    db = SessionLocal()
+    try:
+        logger.info("스케줄러: 활성상태 검증 시작")
+        result = verify_stale_active(
+            db,
+            stale_days=settings.onbid_verify_stale_days,
+            max_checks=settings.onbid_verify_max_checks,
+        )
+        logger.info(f"스케줄러: 활성상태 검증 완료 - {result}")
+    except Exception as e:
+        logger.error(f"스케줄러: 활성상태 검증 오류 - {e}")
     finally:
         db.close()
 
@@ -98,6 +116,16 @@ def start_scheduler():
     else:
         logger.info("온비드 일일 동기화 비활성화됨 (ONBID_SYNC_ENABLED=false) — 잡 미등록")
     
+    # 온비드 활성상태 검증(만료 정리) — 매일 10:30 KST (09:00 동기화 후, 상세 쿼터 여유 시간대)
+    if settings.onbid_verify_enabled:
+        _scheduler.add_job(
+            _scheduled_verify,
+            trigger=CronTrigger(hour=10, minute=30),
+            id="verify_stale_active",
+            name="온비드 활성상태 검증",
+            replace_existing=True,
+        )
+
     # 대법원 파산 공고 수집 (오전 8시 30분, 오후 1시 30분)
     _scheduler.add_job(
         _scheduled_bankruptcy_phase1,

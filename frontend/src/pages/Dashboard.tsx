@@ -93,7 +93,7 @@ export default function Dashboard() {
   const totalPages = listData ? Math.ceil(listData.total / 20) : 1
 
   // 2026-06-29 온비드 수집 기능 수정 중 — 데이터 수집 버튼 비활성화. 재개 시 true→false 로 변경.
-  const COLLECTION_DISABLED: boolean = true
+  const COLLECTION_DISABLED: boolean = false
 
   return (
     <div className="min-h-screen bg-gray-50">

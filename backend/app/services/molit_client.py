@@ -202,6 +202,9 @@ def get_market_price_estimate(
 
     label = f"{sido} {sigungu}".strip()
     is_land = property_type in ("토지", "농지", "임야")
+    if is_land and not settings.molit_land_enabled:
+        # 국토부 토지 실거래 API 미구독(403) — 조회 스킵(감정가 기준 분석으로 처리)
+        return None
     deal_months = _get_recent_deal_months(3)
     all_prices = []
 
