@@ -378,6 +378,20 @@ export default function BankruptcyList() {
         </div>
       </div>
 
+      {/* realty99 상담 유도 배너 (파일 동기화 버튼 아래) */}
+      <div className="flex justify-end mb-5 -mt-2">
+        <a
+          href="https://realty99.co.kr/?utm_source=wonrealty&utm_medium=header&utm_campaign=consult"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+          style={{ background: 'linear-gradient(135deg,#f9f7f0,#f2eede)', border: '1px solid #d8cfae', borderLeft: '4px solid #c9a84c', color: '#16284a' }}
+        >
+          🏠 부동산 상담 · ⚖️ 경매 대리입찰
+          <span className="px-2 py-1 rounded text-xs font-semibold" style={{ background: '#16284a', color: '#fff' }}>금강다온부동산 →</span>
+        </a>
+      </div>
+
       {/* 진행률 배너 */}
       {isWorking && progress && (
         <div className="mb-5 bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
