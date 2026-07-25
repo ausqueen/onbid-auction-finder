@@ -216,9 +216,12 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 
 ## GitHub
 - **Repo**: ausqueen/onbid-auction-finder (private)
-- **PAT**: `<평문 미기재>` — 실제 토큰은 서버 git remote URL에만 저장(`git -C /opt/onbid-auction-finder remote get-url origin`). 폐기·재발급 시 remote URL도 교체.
-- **최신 커밋**: 532d5e9 (feat(frontend): 온비드 데이터 수집 버튼 비활성화 + 안내 문구)
-  - ca862d5 (fix: 온비드 일일 동기화 비활성화 — data.go.kr 상세 API 429 쿼터 초과)
+- **인증 방식**: ~~PAT~~ → **SSH 키**(remote `git@github-onbid:ausqueen/onbid-auction-finder.git`, 별칭은 `~/.ssh/config`의 `Host github-onbid` + `IdentitiesOnly yes`).
+  - ⚠️ **git 명령은 `sudo` 없이 `ausqueen` 계정으로 실행할 것** — sudo는 root의 SSH 키를 쓰므로 `origin` 접근이 실패함(2026-07-25 확인). 작업본 파일도 ausqueen 소유라 sudo 불필요.
+- **최신 커밋**(2026-07-25 push): 8c8d557 (chore(infra): 웹 취약점 5건 수정 + Portainer 제거 + 이미지 갱신·의존성 고정)
+  - cbe51cf (feat(frontend): realty99 상담 유도 배너 + 애드센스 ads.txt)
+  - f83c895 (docs: hsrealty KCP 카드결제 라이브 세팅 + 심사 대비 정비)
+  - ※ 이 줄은 갱신 시점 기준이라 항상 1커밋 정도 뒤처짐. 정확한 값은 `git log -1`.
 
 ## 연결된 서버
 | 서버 | IP | 역할 | 비고 |
