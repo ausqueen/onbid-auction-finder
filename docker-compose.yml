@@ -26,7 +26,7 @@ services:
         max-file: "3"
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:stable-alpine   # 2026-07-25: 1.27-alpine 은 태그 자체가 2025-04-16 이후 갱신 중단(1.27.5) → stable(1.30.x)로 이동
     container_name: onbid-nginx
     restart: unless-stopped
     ports:

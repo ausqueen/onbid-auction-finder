@@ -7,7 +7,7 @@
 ## 서버 정보
 - **호스트명**: hyunsung (구 wonrealty, 2026-07-03 변경 — 도메인 wonrealty.kr과 무관)
 - **IP**: 5.104.87.178
-- **도메인**: wonrealty.kr, portainer.wonrealty.kr (HTTPS 운영 중)
+- **도메인**: wonrealty.kr, blog.wonrealty.kr, hsrealty.co.kr (HTTPS 운영 중). ~~portainer.wonrealty.kr~~ = **2026-07-25 Portainer 삭제로 404**(인증서 SAN·acme 검증용 80 블록만 유지)
 - **OS**: Ubuntu 24.04 LTS
 - **Timezone**: Asia/Seoul (KST)
 
@@ -62,8 +62,8 @@ docker compose build backend && docker compose up -d backend   # 코드 수정 �
 | 컨테이너 | 이미지 | 포트 |
 |----------|--------|------|
 | onbid-backend | onbid-auction-finder-backend (Playwright v1.60.0-noble) | 8001 (expose) |
-| onbid-nginx | nginx:1.27-alpine | 80, 443 |
-| portainer | portainer/portainer-ce:latest (2.39.4) | 호스트 미노출, nginx 프록시 |
+| onbid-nginx | **nginx:stable-alpine** (1.30.4, 2026-07-25 태그 변경) | 80, 443 |
+| ~~portainer~~ | ~~portainer/portainer-ce:latest~~ | **삭제됨(2026-07-25)** — 아래 Portainer 항목 참조 |
 | onbid-certbot | certbot/certbot:latest | profile=certbot (갱신 시만) |
 
 ## 서비스 구조
@@ -94,8 +94,9 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 ## SSL 인증서
 - **발급**: Let's Encrypt (certbot, Docker `certbot` 프로파일, webroot=`/var/www/certbot`)
 - **경로**: `/opt/onbid-auction-finder/certbot/conf/live/wonrealty.kr/`
-- **SAN 도메인**: wonrealty.kr, www.wonrealty.kr, **portainer.wonrealty.kr**
-- **만료**: 2026-09-26
+- **SAN 도메인**(lineage `wonrealty.kr`, 2026-07-25 재발급): wonrealty.kr, www.wonrealty.kr, **blog.wonrealty.kr** — 3도메인. ~~portainer.wonrealty.kr~~ 제외됨(Portainer 삭제).
+  - 별도 lineage `hsrealty.co.kr` = hsrealty.co.kr + www (만료 2026-10-02).
+- **만료**: **2026-10-23** (wonrealty.kr lineage)
 - **자동 갱신**: systemd timer `certbot-renew.timer` (매일 00·12시 + 랜덤지연 1h)
   → `scripts/renew-cert.sh` 실행(certbot renew → nginx reload). 로그: `/var/log/certbot-renew.log`
   ```bash
@@ -103,11 +104,15 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   systemctl start certbot-renew.service   # 수동 1회 실행(미도래 시 skip)
   ```
 
-## Portainer (Docker 관리 UI)
-- **접속**: https://portainer.wonrealty.kr (관리자 계정 생성 완료)
-- **구성**: 호스트 포트 미노출. compose 네트워크(`onbid-auction-finder_default`)에 연결되어
-  nginx가 `portainer:9000` 으로 리버스 프록시 (WebSocket 지원). 볼륨 `portainer_data`.
-- **재설치 시 setup token**: `docker logs portainer | grep setup_token`
+## ~~Portainer (Docker 관리 UI)~~ — **삭제됨(2026-07-25)**
+- **삭제 사유**: ①미사용(화이트리스트 IP 마지막 정상 접속 **2026-07-04**, 누적 164req) ②`/var/run/docker.sock` 마운트 = 침해 시 **호스트 root 동등 권한** ③`portainer.wonrealty.kr` vhost가 봇 스캔 표적(누적 3,182req, 403 차단 중이었음) ④`:latest`인데 2026-06-25 이미지로 고정돼 갱신 안 됨(Portainer는 인증우회 CVE 이력 제품) ⑤compose가 아닌 `docker run --restart always` 독립 컨테이너라 관리 사각. 대체=SSH + `docker compose` CLI.
+- **조치**: `docker stop portainer && docker rm portainer`. **이미지·볼륨 `portainer_data`(292K)는 보존** → 되돌리려면 같은 볼륨으로 재기동하면 계정·설정 그대로 복구.
+- **nginx**(`nginx/wonrealty.conf`, 백업 `wonrealty.conf.bak.20260725portainer`): portainer vhost **80·443 블록 전부 삭제**(주석만 남김).
+- **인증서 재발급**: lineage `wonrealty.kr`을 **3도메인(wonrealty.kr·www·blog)으로 재발급** → SAN에서 portainer 제거, 만료 **2026-10-23**. 명령=`docker compose --profile certbot run --rm certbot certonly --webroot -w /var/www/certbot --cert-name wonrealty.kr -d wonrealty.kr -d www.wonrealty.kr -d blog.wonrealty.kr`. renewal conf 백업 `certbot/conf/renewal/wonrealty.kr.conf.bak.20260725`.
+- **DNS**: `portainer.wonrealty.kr` A 레코드 **가비아에서 삭제 완료**(2026-07-25, 사용자). 권위 NS 조회 NXDOMAIN 확인.
+  - ⚠️ **순서 주의(교훈)**: DNS를 먼저 지우면 certbot webroot 검증 실패 → LE는 **인증서 단위 all-or-nothing**이라 wonrealty.kr·blog 갱신까지 통째로 실패하고, 갱신은 만료 30일 전에야 시도되므로 **몇 달 뒤 조용히 터짐**. 반드시 **①SAN에서 도메인 제외 재발급 → ②vhost 제거 → ③DNS 삭제** 순서.
+- **검증**: `certbot renew --dry-run` **양 lineage 성공**, 회귀 없음(wonrealty·www·blog·hsrealty·shop 전부 200), docker.sock 마운트 컨테이너 **0개**.
+- **재설치가 필요해지면**: `docker run -d --name portainer --restart always -v portainer_data:/data -v /var/run/docker.sock:/var/run/docker.sock --network onbid-auction-finder_default portainer/portainer-ce:latest` + nginx 443 블록 복원(백업 파일 참조). setup token은 `docker logs portainer | grep setup_token`.
 
 ## hsrealty.co.kr — NAS 쇼핑몰 (WooCommerce, 2026-07-04 라이브)
 - **경로**: `/opt/hsrealty/` (docker-compose.yml·.env·README.md·data/). `/opt`라 ABB 백업 포함. onbid와 별개 스택.
@@ -136,12 +141,60 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   - **✅ 다음(Daum) 웹마스터도구 추가(2026-07-12)**: 다음은 메타태그가 아닌 **robots.txt PIN 방식**. WP robots.txt는 정적파일 없이 코어 가상생성이라 자식테마 `functions.php`에 `robots_txt` 필터(priority1) 추가(백업 `functions.php.bak.20260712daum`)로 PIN을 **최상단**에 주입: `HS_DAUM_ROBOTS_PIN='#DaumWebMasterTool:975de40ab3df852948abf18a38524c420a96984b7d290b881d67502e76d46548:NLkqp3sqCgF0b7m1VxgDAA=='`. 라이브 robots.txt 1행 출력 검증 완료. **✅ 다음 웹마스터도구 소유확인+수집요청 완료(사용자, 2026-07-12)**. → 검색엔진 커버리지=**구글·네이버·다음(+네이트) 3대 전부 등록 완료**. 색인 반영은 며칠~2주 소요.
   - **✅ KCP 카드결제(코스모스팜 페이) 라이브 세팅(2026-07-13)**: 무통장→PG 개통 진행. **코스모스팜 페이 for 우커머스 v6.7** 설치·활성화(`plugins/cosmosfarm-pay-for-woocommerce`). NHN KCP 게이트웨이 **카드·가상계좌·계좌이체 3종 운영(LIVE) 활성화**(휴대폰 제외), 무통장(bacs) 병행. 상점코드 **ALVGH**(입력 시 `is_test()` 자동 false → 운영 `spl.kcp.co.kr`; 비우면 테스트 `stg-spl` + 내장 테스트키) + 상점키·개인키(암호화PKCS8)·서비스인증서(발급자 spl.kcp.co.kr, ~2031-07-12)·개인키비밀번호 입력·검증(openssl 복호화 성공). ⚠️ **자격증명은 DB(`woocommerce_nhnkcp_{card,vbank,transfer}_settings`)에만 저장 — 이 문서·NAS에 평문 미기재**(NAS 업로드 원본은 세팅 후 삭제). 자격증명은 게이트웨이별 개별저장(공유 아님, get_option 오버라이드 없음)이라 3곳 입력. 결제수단 노출순서 카드>가상계좌>계좌이체>무통장(`woocommerce_gateway_order`). ⚠️ **카드사 개통(심사) 진행 중** → 개통 완료 전엔 실승인 실패 가능(결제창은 정상), 개통 후 100원 실결제→즉시취소로 실승인 검증 예정. 비밀값은 명령줄 노출 없이 파일읽기 PHP(`wp eval-file`)로 입력, 컨테이너 임시(`data/wp/_kcptmp`) 삭제.
     - **심사 대비 필수표기 정비**: 환불/반품(id9)이 WooCommerce 영문샘플+draft였던 것 → 한글 「교환·환불·배송 정책」 재작성·공개(`/refund-returns/`, 표준값 청약철회7일·단순변심 반품비 고객부담·하자/오배송 판매자부담, 개봉/설치/라이선스/NAS설치 청약철회 예외). 멱등 스크립트 `data/wp/hsrealty-import/create_refund_policy.php`(`<!-- wp:html -->` 래핑). 푸터 위젯 `widget_custom_html[3]`에 링크 추가.
-    - **에스크로(구매안전서비스)**: KCP 가입완료(이용확인증 등록번호 **제A11-260709-1162호**, 제공자 NHN KCP, 2026-07-09~2027-07-09 1년자동갱신) → PDF `wp-content/uploads/hsrealty-docs/hsrealty-escrow-certificate.pdf` 게시(공개200)+푸터 링크(표시의무 충족). ⚠️ 플러그인이 KCP 결제에 **`escw_used=N` 하드코딩**(KCP용 에스크로 전용 게이트웨이 없음, 타 PG는 있음) → 실거래 에스크로 미적용 가능 → 코스모스팜 문의 권장. **푸터 링크 현황**: 이용약관 | 개인정보처리방침 | 교환·환불·배송 | 구매안전서비스 이용확인증.
-- **미완**: 결제 = **카드사 개통(심사) 대기**(코스모스팜페이+KCP 라이브 세팅·필수표기·에스크로표시 완료, 개통 후 실결제 검증만 남음)·KCP 에스크로 실거래 적용여부 확인(escw_used=N)·상품 상세설명 실제 스펙 보강(DS225+ 외 나머지 제품)·대리점 데이터(D4ES/D4ESO) 정정·Solapi 핸드폰 본인인증.
+    - **에스크로(구매안전서비스)**: KCP 가입완료(이용확인증 등록번호 **제A11-260709-1162호**, 제공자 NHN KCP, 2026-07-09~2027-07-09 1년자동갱신) → PDF `wp-content/uploads/hsrealty-docs/hsrealty-escrow-certificate.pdf` 게시(공개200)+푸터 링크(표시의무 충족). **푸터 링크 현황**: 이용약관 | 개인정보처리방침 | 교환·환불·배송 | 구매안전서비스 이용확인증.
+      - **✅ KCP 에스크로 실거래 적용 완료(2026-07-25)**: 기존 v6.7은 KCP 결제에 `escw_used=N` 하드코딩(KCP 전용 에스크로 게이트웨이 없음)이던 것 → 코스모스팜에 문의(2026-07-22 발신) → **에스크로 게이트웨이 추가된 v6.8 배포받아 적용**. 조치: 플러그인 **v6.7→v6.8 교체**(신규 클래스 `NhnKcp_VBank_Escrow`·`NhnKcp_Transfer_Escrow`, `escw_used=is_escrow()?'Y':'N'`. 카드·휴대폰은 에스크로 대상 아니라 'N' 유지=정상). 롤백본 `/opt/hsrealty/_plugin_bak/cosmosfarm-pay-for-woocommerce-v6.7`. **가상계좌·계좌이체를 에스크로판으로 전환**(사용자 결정): 에스크로 게이트웨이(`woocommerce_nhnkcp_{vbank,transfer}_escrow_settings`)에 자격증명 5필드(kcp_cd=ALVGH·kcp_site_key·kcp_sign_data·kcp_sign_data_pw·**kcp_cert_info=개행제거된 1268B본**) 복사 + `enabled=yes`, 일반 가상계좌/계좌이체는 `enabled=no`. 노출순서 카드>가상계좌(에스크로)>계좌이체(에스크로)>무통장. 전자상거래법상 5만원↑ 현금성결제(가상계좌·계좌이체) 에스크로 의무 충족. ⚠️ **에스크로는 웹훅 URL이 다름** — 두 에스크로 게이트웨이 공용 엔드포인트 `https://hsrealty.co.kr/?wc-api=cosmosfarm_pay_wc_nhnkcp_escrow_notification`(내부 라우터가 결제수단별 분기). **✅ 웹훅 URL 등록 완료(2026-07-25, 사용자가 KCP 상점관리자→기술관리센터→웹훅관리에 등록)**(일반 가상계좌 웹훅 `...noti_vbank`과 별개, 미등록 시 입금 자동전환 안 됨).
+        - **등록 후 서버측 재검증(2026-07-25)**: 같은 날 nginx 규칙 5종 추가·WooCommerce 10.9.4 업데이트·컨테이너 전면 재생성을 거쳤기에 경로 재확인함 → 에스크로 엔드포인트 **HTTP 404 + `Content-Type: application/json`**(= WP의 HTML 404가 아니라 **플러그인 핸들러가 받아서 order_no 없음으로 거절** = 정상 도달), 일반 가상계좌 엔드포인트 200. 웹훅 URL은 루트 경로+쿼리스트링(`/?wc-api=...`)이라 신규 nginx deny 규칙(uploads php·bak/log·hsrealty-import)과 **무관**함을 설정으로 확인. KCP 통지 IP 3개(210.122.176.144·103.215.144.173/174) **fail2ban 밴 아님**. 에스크로 게이트웨이 2종 `enabled=yes`·`kcp_cert_info` 1268B 유지, 플러그인 v6.8 유지.
+        - ⚠️ **에스크로 운영흐름**: 입금 후 판매자 **배송등록→구매확정** 거쳐야 정산(주문마다).
+        - ⏳ **여전히 미검증(실거래 필요)**: 100원 에스크로 가상계좌 실거래로 ①`escw_used=Y` 전송 ②입금 시 **웹훅 실수신→주문 자동전환** 확인. 등록 시점 이후 KCP 통지 IP 접속 이력 **0건**(아직 에스크로 주문이 없어 당연) → 첫 실주문 또는 100원 테스트 때 `docker logs onbid-nginx | grep -E '210\.122\.176\.144|103\.215\.144\.17[34]'`로 수신 확인할 것.
+    - **⏳ 카드사 개통 후 실결제 검증 — S032 오류로 KCP 문의 중(2026-07-21)**: 카드사 전체 개통 완료 통보받고 100원 실결제 테스트 진행 → 결제창·앱카드 QR 인증은 성공(res_cd=0000)하나 **승인 API(`spl.kcp.co.kr/gw/enc/v1/payment`)가 `S032 접근권한이 없습니다` 반환**(카드 청구 안 됨). 서버측 자격증명(ALVGH·상점키·개인키·인증서 CN=2026071310016369, 7/13발급~2031유효)은 전부 정상 확인 → 원인은 KCP측: ①인증서 재발급으로 기존 무효화 또는 ②API 권한 전산 미반영으로 추정했으나 → **✅ KCP 답변 수신·원인 확정·수정 완료(2026-07-22)**: 승인 요청의 `kcp_cert_info`(서비스인증서)에 **`\r\n` 개행문자가 포함**돼 인증서 검증 실패가 원인(플러그인 내장 테스트 인증서는 개행 없는 한 줄 형식인데, 운영 인증서를 여러 줄 PEM 그대로 입력했던 것). 조치: 3개 게이트웨이 설정(`woocommerce_nhnkcp_{card,vbank,transfer}_settings`)의 `kcp_cert_info`에서 `\r\n` 전부 제거(1310→1268B, wp eval·플러그인 코드 무수정). 개행 제거 후에도 X.509 정합 확인(CN=2026071310016369, ~2031-07-12). **✅ 100원 실결제 재테스트 성공(2026-07-22 17:15)**: 하나카드 100원 승인(res_cd=0000, 승인번호 23126010) → wp-cli `wc shop_order_refund create --api_refund=true`로 즉시취소(KCP `/gw/mod/v1/cancel` STSC res_cd=0000, 주문 refunded 확인). **→ KCP 카드결제 라이브 검증 완전 완료.** 임시 리소스(테스트 상품 213·주문 215/216/217·디버그 mu-plugin+로그·kcp-settings 백업 json) 전부 삭제 정리 완료.
+      - **✅ 결제창 "진행중" 멈춤(약 2분) 해결(2026-07-22)**: 승인 성공 후 결제창이 안 닫히던 증상 → 원인은 KCP 아님. 결제완료 콜백이 주문 메일 2통(관리자+고객)을 **동기 발송**하는데 wp-mail-smtp(smtp.daum.net:465)가 **간헐적으로 통당 ~60초 지연**(실측: 같은 메일이 62.5초/2.4초 오락가락 — 다음 서버측 타핏, 연결·인증·전송 각 단계는 0.1초 미만 정상). 조치: 자식테마 `functions.php`에 `add_filter('woocommerce_defer_transactional_emails', '__return_true')` 추가(백업 `functions.php.bak.20260722`) → 주문 메일이 크론 비동기 발송으로 전환, 콜백 응답 즉시 반환. ⚠️ 우커머스 외 일반 wp_mail(비번재설정 등)은 여전히 동기 — 다음 SMTP 지연이 잦아지면 발송 서비스 교체 검토.
+      - ~~검증 임시 리소스~~ → **전부 정리 완료(2026-07-22)**: 테스트 상품 213·주문 215/216/217·디버그 mu-plugin(hs-kcp-debug.php)+로그·kcp-settings 백업 json 삭제. 환불은 wp-cli `wc shop_order_refund create <주문id> --amount=<금액> --api_refund=true --user=ausqueen`로도 가능(플러그인 process_refund가 KCP STSC 취소 API 직접 호출 — KCP 관리자 불필요).
+    - **✅ 가상계좌 실거래 검증 완료(2026-07-22 저녁)**: 테스트 상품 재생성(ID 219, 100원, `/product/payment-test-100/`)로 가상계좌 주문 220 → **발급 성공**(res_cd=0000, 국민은행 40249085811064, 예금주 현성리얼티, 기한 3일 — 가상계좌 KCP 개통 확정) → 주문 `awaiting-vbank`(입금대기) 전환·고객화면 계좌안내 표시 정상. 계좌정보 메타는 플러그인이 postmeta(구형)에 저장하나 자체 HPOS 호환계층(`Cosmosfarm_Pay_WC_HPOS::get_meta`)이 읽기+백필 — 표시코드 전부 이 경로라 실사용 문제없음. **실입금(100원) 후 자동전환 실패** → 원인: **KCP 입금통지(웹훅)가 아예 미발송**(KCP 통지 IP 210.122.176.144·103.215.144.173/174 접속 0건) = KCP 파트너관리자에 웹훅 URL 미등록이었음. → **사용자가 웹훅 URL 등록 완료(UTF-8)**: `https://hsrealty.co.kr/?wc-api=cosmosfarm_pay_wc_nhnkcp_noti_vbank` (플러그인 핸들러가 KCP IP 화이트리스트+tx_cd=TX00 처리, 입금 시 payment_complete+재고차감+새주문메일). 등록 전 입금건이라 웹훅 발송이력 없음 → **주문 220 수동 결제완료 처리 후 환불**(STSC res_cd=0000, 18:40) 완료. ⚠️ **미검증 잔여**: 웹훅 실수신(등록 이후 첫 가상계좌 입금 시 자동전환 확인 필요) · 환불금 100원이 환불계좌(주문 시 수집: 하나은행, 예금주 원유호)로 실제 반환되는지(수일 소요, 미도착 시 KCP 관리자에서 환불계좌 입력 확인). **계좌이체는 결제창 노출 확인까지만 하고 실결제 테스트 생략(사용자 결정)** — 카드·가상계좌와 동일 자격증명/승인 경로(STSC 취소 포함)라 리스크 낮음, 첫 실주문에서 자연 검증. 테스트 상품 219·디버그 로거는 삭제 완료. **주문 220(환불됨)은 보존 중** — 환불금 100원 하나은행 도착 확인 후 삭제 예정(거래번호 26833404346625·환불계좌 기록 보전 목적).
+- **미완**: ~~결제~~(✅ 2026-07-22 KCP 카드결제 라이브 검증 완료)·~~KCP 에스크로 실거래 적용(escw_used=N)~~(✅ 2026-07-25 v6.8 에스크로 게이트웨이 적용, 웹훅등록·100원 실거래 검증만 잔여 — 위 에스크로 항목 참조)·상품 상세설명 실제 스펙 보강(DS225+ 외 나머지 제품)·대리점 데이터(D4ES/D4ESO) 정정·Solapi 핸드폰 본인인증.
 - **⏳ 판매채널 확장(2026-07-12 계획, 사용자 요청 = 나중에 진행)**: 검색 등록·방문분석 완료 후 다음 단계로 **①네이버 쇼핑 노출 + ③구글 머천트 센터**(②지역검색·스마트플레이스는 이번엔 제외). 두 채널 공통 선결과제 = **WooCommerce 79상품 → 상품피드(feed) 생성**(제목·가격KRW·이미지·재고·상품URL·카테고리, 가급적 GTIN/브랜드). 생성방식 후보: 피드 플러그인(CTX Feed / Product Feed PRO 등) 또는 커스텀 엔드포인트(WP REST/eval-file로 XML·TSV 출력). **비공개 상품(ID24·80)은 피드서 제외** 필수.
   - **① 네이버 쇼핑**: 경로A=**네이버 스마트스토어 입점**(별도 판매자 가입·정산, 상품 재등록 필요) / 경로B=**쇼핑파트너센터 가격비교 EP 연동**(자체몰 유지한 채 상품DB EP 등록). 선결=네이버 커머스ID/판매자 가입, 사업자·**통신판매업 신고(제2026-경기안산-1395호 보유)**, EP 포맷(네이버 전용 필드). 어느 경로로 갈지 사용자 결정 필요.
   - **③ 구글 머천트 센터**: Merchant Center 계정 생성 → **구글 상품 피드**(Google Shopping 스펙: id·title·price·availability·image_link·link·brand·gtin/mpn) 제출 → 무료 리스팅(Shopping 탭 무료노출)+선택적 유료광고. **GA4(G-KN1MXMH74M) 이미 연동돼 전환추적 가능**. 선결=구글계정·피드 생성·정책검토(배송/반품 정보 필요).
   - 착수 시 참고: SEO/애널리틱스 훅은 자식테마 `functions.php`에 있음. 피드는 별도 `hsrealty-import/` 스크립트나 플러그인으로. 재개하려면 위 "선결과제(상품피드)"부터.
+
+## blog.wonrealty.kr — 워드프레스 블로그 (2026-07-23 신설)
+- **경로**: `/opt/blog-wonrealty/` (docker-compose.yml·.env·data/). compose project **blogwr**. hsrealty와 동일 패턴, ABB 백업 포함(/opt).
+- **스택**: WordPress php8.3-apache(ko_KR) + MariaDB 11.4. 컨테이너 `blogwr-wp`(검증용 `127.0.0.1:8084`)·`blogwr-db`·`wpcli`(profile=cli).
+  - 네트워크: 자체 `blogwr_default` + 외부 `onbid-auction-finder_default` 합류 → onbid-nginx가 `blogwr-wp:80` 프록시.
+- **공개**: `https://blog.wonrealty.kr`. nginx `wonrealty.conf` 말미에 80/443 블록 append(백업 `wonrealty.conf.bak.20260723`).
+  - SSL: 기존 `wonrealty.kr` lineage **SAN 확장**(blog 추가, 총 4도메인, 만료 **2026-10-21**) — `certbot-renew.timer`가 그대로 자동갱신.
+- **WP 설정**: 제목 "원리얼티 블로그", 관리자 `ausqueen`(비번 `.env` WP_ADMIN_PASSWORD, chmod600), 타임존 Asia/Seoul, 고유주소 `/%postname%/`.
+- **하드닝**: nginx=hsrealty 세트 동일(xmlrpc 403·readme/wp-config 차단·보안헤더·**wp-login/wp-admin IP 제한** 116.41.161.23·58.225.109.232, admin-ajax 공개). WP=**mu-plugin** `data/wp/wp-content/mu-plugins/blogwr-hardening.php`(xmlrpc off·generator 제거·REST users 404·author 열거→홈 301, template_redirect priority 0). 검증 매트릭스 전부 통과.
+- **명령**: `cd /opt/blog-wonrealty && sudo docker compose ps | logs -f wordpress`. wp-cli: `sudo docker compose --profile cli run --rm wpcli <cmd>`.
+- **테마(2026-07-23)**: **GeneratePress 3.6.1** + 브랜드 커스텀 CSS(네이비 #16284a/골드 #c9a84c, WP 커스터마이저 custom_css post 14).
+- **SEO(2026-07-23)**: mu-plugin `blogwr-seo.php` = meta description+OG+twitter:card(대표이미지 자동, 폴백 BLOGWR_OG_IMAGE)·robots.txt에 Sitemap 명시·소유확인 상수 **`BLOGWR_GOOGLE_VERIFY`·`BLOGWR_NAVER_VERIFY`·`BLOGWR_DAUM_ROBOTS_PIN`(현재 빈값 — 사용자가 서치콘솔/서치어드바이저/다음도구에서 코드 받아오면 채움)**. 사이트맵 `/wp-sitemap.xml` 정상.
+- **✅ 매일 자동 발행 파이프라인(2026-07-23 가동)**: `/opt/blog-wonrealty/autopost/autopost.py`(python3 stdlib only, root 실행).
+  - 흐름: 구글뉴스 RSS(부동산 검색, ko) 헤드라인 20건 → **Gemini API**(`gemini-2.5-flash`, 키=onbid와 동일 키 복사)가 화두 1개 선정+Gutenberg 블록 글 생성(JSON) → **이미지 풀 30장**(`pool.json`, WP 미디어 ID 5~10·16~21·26~43, 힉스필드 soul_2 생성. 2026-07-23 12→30장 확장)에서 LLM이 2장 선택 → **WP REST API**(Application Password `autopost`, `autopost.env` chmod600)로 발행(카테고리 부동산=2, 태그 find-or-create, 대표이미지).
+  - 스케줄: systemd `blogwr-autopost.timer` = **매일 08:00·20:00 KST 2회**(+랜덤 5분, Persistent. 2026-07-23 저녁 2회로 확대). 로그 `/var/log/blogwr-autopost.log`. 상태 `state.json`(최근제목 40개 중복방지 + **회차(AM/PM) 단위 멱등**(14시 기준), 재실행은 `--force`).
+  - 안전장치: 헤드라인에 없는 수치 날조 금지·투자권유 금지 고지문 강제(프롬프트), Gemini 3회 재시도, 발행상태 `autopost.env` `POST_STATUS`(draft로 바꾸면 검수모드). 검증: draft 테스트 후 발행 확인 완료(post 22).
+  - **분량·중복 개선(2026-07-23 저녁)**: 분량 피드백 두 차례(짧다→2,000자↑로 상향→너무 길다) 거쳐 **최종 공백 포함 1,400~1,700자(1,500자 안팎, 2,000자 초과 금지)**·h2 3~4개로 확정(draft 검증 1,687자 확인). 같은 날 헤드라인 도배로 전일과 같은 주제를 또 고르는 문제 → "표현만 바꾼 같은 주제 절대 금지, 겹치는 헤드라인 건너뛰기" 지시 강화(검증 런에서 다른 주제 '양극화' 선택 확인).
+  - 수동 실행: `sudo systemctl start blogwr-autopost.service` 또는 `sudo python3 /opt/blog-wonrealty/autopost/autopost.py --force`.
+  - **✅ 네이버 블로그 복사용 메일(2026-07-23)**: 발행 직후 `ausqueen@hanmail.net`으로 **글 1건당 메일 1통** 자동 발송(`send_copy_mail` — 제목·태그·원문링크+블록주석 제거된 본문, 이미지는 블로그 절대URL **+ 본문 이미지 파일 첨부**(붙여넣기 누락 대비, 로컬 uploads에서 읽고 없으면 URL 다운로드)). SMTP=**다음 smtp.daum.net:465 hyunsung567@daum.net**(hsrealty wp-mail-smtp와 동일 계정, 설정은 autopost.env). 메일 실패해도 발행은 성공 처리. 기존 4건(post 11·12·13·22) 소급 발송 완료.
+- **✅ 검색 노출 작업(2026-07-23)**: ①**구글 소유확인 메타 삽입 완료** — 구글 토큰은 계정 단위 재사용 가능이라 hsrealty 토큰(`wrLqcuG3...`)을 `BLOGWR_GOOGLE_VERIFY`에 삽입, 라이브 출력 확인(서치콘솔에서 속성 추가만 하면 즉시 인증). ②**IndexNow 구축** — 키 `44d9145e90e244dba06c075ff1caa4fd`(웹루트 `<키>.txt` 200), autopost.py가 발행 직후 api.indexnow.org+네이버 서치어드바이저 엔드포인트에 자동 핑(`INDEXNOW_KEY` in autopost.env). 초기 제출 5 URL 완료(빙 202·네이버 200). ③**hsrealty 푸터 백링크** — 패밀리 사이트 링크 추가(위젯 백업=세션 스크래치패드 `hsrealty_widget_custom_html.bak.json`).
+- **✅ 구글 애드센스 코드 설치(2026-07-23)**: `blogwr-seo.php` `BLOGWR_ADSENSE_CLIENT='ca-pub-6535750585778559'` → 전 페이지 head에 adsbygoogle.js 출력 + 웹루트 `ads.txt`(`google.com, pub-..., DIRECT, f08c47fec0942fa0`) 200. 심사 신청·승인 후 자동광고는 애드센스 대시보드에서 설정(코드 수정 불필요). ⚠️ 신규 사이트라 콘텐츠 부족 거절 가능 — 글 15건+ 쌓인 뒤 신청 권장함.
+  - **루트 도메인 확인 대응**: 애드센스가 상위도메인(wonrealty.kr) 단위 등록만 허용 → onbid 프론트 `frontend/index.html`에 스크립트 임시 삽입+`frontend/public/ads.txt`(재빌드에도 유지, vite가 dist로 복사) 배치 → **코드 스니펫 방식으로 소유확인 통과(2026-07-23)**. 확인 직후 사용자 요청으로 **루트 스크립트는 제거·재빌드**(공매 서비스엔 광고 미표시 — 스크립트 없으면 자동광고 원천 차단). **ads.txt는 루트·blog 양쪽 유지**(구글 상시 크롤링 파일). 최종 상태: 광고 코드=blog만, ads.txt=양쪽. 재확인 요구 시 index.html에 스크립트 재삽입+빌드.
+- **✅ GA4 방문분석(2026-07-23)**: `blogwr-seo.php`에 gtag 훅 — **`BLOGWR_GA4_ID='G-K1FLJMXL7L'`**(블로그 전용 속성, hsrealty G-KN1MXMH74M과 별개). 관리자(로그인+edit_posts) 집계 제외(`blogwr_analytics_should_track`) → 실시간 테스트는 시크릿창. 홈·글 페이지 라이브 출력 검증 완료.
+- **✅ 3대 검색엔진 소유확인 코드 전부 삽입 완료(2026-07-23)**: 구글 `BLOGWR_GOOGLE_VERIFY='grahwvd9gEJ8ZUedh7rycOIr6spW1_uqM2fRhXmFymc'`(당초 hsrealty 토큰 재사용 시도 → 사용자 발급 신규 코드로 교체)·네이버 `BLOGWR_NAVER_VERIFY='902e7bdfc78df885558e3adf12ada5dc1eafaddd'`·다음 robots PIN(`#DaumWebMasterTool:6ffb21af...`, robots_txt 필터 priority 99 — 코어 Sitemap 중복 방지 포함). 홈 head·robots.txt 라이브 출력 검증 완료. 소유확인 버튼 클릭+사이트맵(`wp-sitemap.xml`)·RSS(`/feed/`) 제출은 사용자 진행.
+- **✅ realty99 상담 유도 배너(2026-07-23)**: 단일 글 본문 하단(애드핏 위, the_content priority 20)에 realty99.co.kr 홈페이지 유도 배너. 버튼 표시문구는 URL 대신 **"금강다온부동산"**(전 배너 5곳 공통, 링크는 realty99.co.kr 유지). **+우측 사이드바 미니 배너**(Recent Comments 아래, 블록위젯 `block-7` in sidebar-1, utm_medium=sidebar). **+wonrealty.kr(공매 서비스)**: 처음 우하단 고정(floating)으로 넣었다가 사용자 요청으로 **파산 매각 페이지 상단 버튼줄(파일 동기화 등) 바로 아래 우측 정렬 배너로 이동**(`frontend/src/pages/BankruptcyList.tsx`, utm_medium=header. index.html의 고정 배너는 제거) 후 npm 재빌드. ⚠️ frontend 파일 수정 시 CRLF 보존 + 재빌드 필요. — 문구 "부동산 매매·전세·월세 상담" + "**경매 대리입찰이 필요하신가요?**" + 바로가기 버튼(네이비/골드). 이 서버 `blogwr-realty99-banner.php`(utm_source=blog_wonrealty) + realty99 서버 `r99-consult-banner.php`(utm_source=blog_realty99). 양쪽 라이브 검증.
+  - **blog.realty99 구 하단 배너 비활성화(2026-07-23)**: 새 상담 배너와 중복되던 기존 `realty99-link.php`("공식 홈페이지" 초록 박스, the_content append) → `data/wordpress/realty99-link.php.bak.20260723`로 이동해 비활성. 글 하단 배너는 새 것 1개만 노출.
+  - **blog.realty99 좌측 사이드바 미니 배너(2026-07-23)**: 방문자 집계 하단에 "🏠 부동산 상담/⚖️ 경매 대리입찰 → realty99.co.kr" 소형 배너(utm_medium=sidebar). `realty99-category-sidebar.php`에 삽입(백업 `.bak.20260723`).
+  - **blog.realty99 상단 홈페이지 링크 제거(사용자 요청)**: TT5 블록테마 내비게이션(`wp_navigation` post 4)의 "금강다온공인중개사사무소 공식홈페이지" 항목 삭제(백업 `data/wordpress/nav4.bak.20260723.txt`) + 그 버튼 전용 mu-plugin `realty99-home-link-button.php`도 제거(백업 `data/wordpress/*.bak.20260723`). realty99 서버 wp-cli는 `docker run --rm -e WORDPRESS_DB_* --volumes-from realty99_wordpress --network container:realty99_wordpress wordpress:cli-php8.3` 방식(전용 wpcli 서비스 없음, env 전달 필수).
+- **✅ 카카오 애드핏 활성화(2026-07-23)**: mu-plugin — 이 서버 `blogwr-adfit.php`(PC `DAN-AUJQR3DTzOYrKyFg`·모바일 `DAN-ncXEIssn6sp1oJze`) + **realty99 서버** `/opt/realty99/data/wordpress/wp-content/mu-plugins/r99-adfit.php`(mu-plugins 폴더 신설. PC `DAN-l6FBDTISo2rH4uW1`·모바일 `DAN-0FWTOCvF1Peqof5u`). 단일 글 본문 하단 자동 삽입, PC(728x90)/모바일(320x100) 미디어쿼리 반응형, ba.min.js는 footer 1회. **1차 심사 보류(2026-07-23)**: 광고가 글 페이지에만 있어 심사 크롤러가 홈에서 미발견 → **홈·목록 등 비단일글 페이지 하단(wp_footer)에도 광고 출력 추가**(양쪽, `if (!is_singular('post')) echo adfit_units_html()`) + **스크립트를 공식 SDK 가이드 스펙으로 정렬**(구 `t1.daumcdn.net` → `https://t1.kakaocdn.net/kas/static/ba.min.js`, charset=utf-8, ins `width:100%`) 후 재심사 요청. 홈·글 페이지 출력/중복없음 검증 완료. **2차 보류(원리얼티만, 콘텐츠 부족)** → 상록 가이드 글 6건 일괄 생성·발행(`bulk_evergreen.py` 1회성, 전세체크리스트·DSR/LTV/DTI·청약가점·등기부등본·경매vs공매·재개발vs재건축)으로 총 10건 확보. 자동발행 누적 후 며칠 뒤(15건+) 재심사 권장.
+- ⏭️ 미진행: fail2ban WP 잼(wp-login IP 제한이라 우선순위 낮음), 이미지 풀 보충(추가 시 pool.json에 항목 추가).
+
+## MCP 커넥터 — PlayMCP (카카오 공식) ⭐ 네이버 검색 기본 경로
+- **연결 확인**: 2026-07-24 실호출 검증 완료(`get_current_korean_time` 응답 정상, `KakaotalkChat-MemoChat` 테스트 발송 성공).
+- ⭐ **규칙: 네이버 검색이 필요하면 PlayMCP 커넥터의 NaverSearch 도구를 사용한다**(일반 웹검색·스크래핑보다 우선).
+  - 검색: `search_blog`·`search_news`·`search_shop`·`search_image`·`search_local`·`search_cafearticle`·`search_kin`·`search_book`·`search_encyc`·`search_academic`·`search_webkr`
+  - 데이터랩(트렌드): `datalab_search`(검색어 트렌드), `datalab_shopping_category`·`datalab_shopping_keywords` + 성별/연령/기기별 변형, `find_category`
+  - 유틸: `get_current_korean_time`(한국 현재시각)
+  - 도구는 지연 로딩(deferred) — 호출 전 `ToolSearch`로 `select:mcp__claude_ai_PlayMCP__NaverSearch-<도구명>` 스키마를 먼저 로드해야 함.
+- **카카오톡**: `KakaotalkChat-MemoChat` = **"나에게 보내기"만 가능**(타인·단톡방 불가), 메시지 **최대 200자**.
+- ⚠️ **적용 범위**: 이 커넥터는 Claude 세션 안에서만 동작 → 서버 크론/스크립트(blog autopost 등)에서 직접 쓰려면 별도 네이버·카카오 REST API 키·토큰 발급 필요.
 
 ## Antigravity CLI (agy)
 - hyunsung(구 wonrealty) 서버에 v1.0.13 설치 — `~/.local/bin/agy` (ausqueen 계정)
@@ -291,6 +344,29 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   - **WP 레벨 하드닝(자식테마 `functions.php`, 백업 `.bak.20260708`)**: xmlrpc_enabled=false, 버전 generator 제거, REST `/wp/v2/users` 비로그인 차단(404), `?author=N`·작성자아카이브 → 홈 301(관리자 계정 slug 노출 차단). php -l·라이브 검증 완료.
   - **관리자 로그인 아이디 변경(2026-07-08)**: hsrealty WP 관리자 `hsadmin` → **`ausqueen`**(realty99 blog과 통일). ID 1·비밀번호·데이터 유지, 이메일은 `hs@hsrealty.co.kr` 그대로. `wp_users.user_login`+`user_nicename` DB변경, `.env` `WP_ADMIN_USER`도 동기화. 로그인 `https://hsrealty.co.kr/wp-admin/`(IP 제한 적용된 상태).
   - **WP 관리자 IP 제한(2026-07-08b, nginx `wonrealty.conf`, 백업 `.bak.20260708b`)**: `wp-login.php`·`/wp-admin/`을 신뢰 고정 IP `116.41.161.23`·`58.225.109.232`(SSH 성공 IP=Portainer 허용목록과 동일)만 허용, 그 외 403. **예외 공개**: `admin-ajax.php`(스토어프론트 AJAX, 정확일치 우선), `wp-cron.php`(내부크론, /wp-admin 밖). **고객 로그인 영향 없음**(고객은 `/my-account/`). 동적 모바일 IP(118.235.x)는 제외. 서버 자신은 열 필요 없음(wp-cron·admin-ajax·wp-cli로 충분, wp-cli는 nginx 우회). 다른 장소 접속 필요 시 SSH로 `allow <IP>;` 추가 후 `docker restart onbid-nginx`. 검증: 403/200 매트릭스 확인 완료.
+  - **✅ 웹 취약점 점검·수정 5건(2026-07-25, 재부팅 점검 중 발견)** — nginx 백업 `wonrealty.conf.bak.20260725web`, 반영은 전부 **inode 보존 편집 + `nginx -s reload`(순단 0)**. **각 항목을 nginx + Apache `.htaccess` 2중으로 차단**(nginx 규칙이 유일한 방어선이 되지 않도록).
+    - **① uploads 디렉터리 PHP 실행 가능(hsrealty·blog 양쪽)** — 실증됨(테스트 파일이 실제 실행). "업로드 취약점 → RCE" 체인이 성립하는 상태였음(WP 코어의 `.php` 업로드 금지가 유일 방어선). 조치=nginx `location ~* ^/wp-content/uploads/.*\.(php|phtml|phps|php[0-9])$ {deny all;}` + `uploads/.htaccess`(FilesMatch Require all denied). 검증: nginx 경유·컨테이너 직접(8083/8084) 모두 403, 본문 미실행.
+    - **② 테마 백업파일 21개(440K) 소스 원문 노출** — `functions.php.bak.20260722` 등은 최종 확장자가 `.php`가 아니라 PHP로 파싱되지 않고 **정적 파일로 소스 전송**(전부 200이었음). 하드코딩 시크릿은 없었으나(KCP·SMTP는 DB/.env에만) 커스텀 로직 전문 + **auth 로그 경로**가 노출돼 ③으로 체인. 조치=nginx `\.(bak|old|orig|save|swp|swo|sql|log)($|\.)` deny + `~$` deny + **파일 21개를 `/opt/hsrealty/_theme_bak/`(웹루트 밖)로 이동**. ⚠️ **이후 테마 백업은 반드시 `_theme_bak/`에 둘 것**(테마 폴더에 두면 재발).
+    - **③ 로그인 실패 로그 `wp-content/hs-auth-fail.log` 공개** — 유효 관리자 ID `ausqueen` + **신뢰 IP `58.225.109.232`** 노출. REST users 404·author 열거 차단으로 숨긴 관리자 계정명이 이 파일로 새고 있었음. 조치=②의 `.log` 규칙으로 차단(nginx+.htaccess 403).
+    - **④ X-Forwarded-For 위조 → fail2ban 임의 밴(실증 완료)** — `functions.php`의 `hs_client_ip()`가 XFF **첫 값**을 무조건 신뢰했는데, nginx는 `$proxy_add_x_forwarded_for`로 "클라이언트 값 + 실제 IP" 순으로 덧붙이므로 **첫 값 = 공격자 지정값**. 공개 경로 `/my-account/`(WooCommerce 고객 로그인)에서 nonce 취득 후 위조 POST → 로그에 `203.0.113.99`(존재하지 않는 IP)가 기록되는 것 확인. 이 로그가 fail2ban 입력원이라 **③이 알려준 관리자 신뢰 IP를 밴시켜 차단(DoS)** + **공격자 자신은 매번 다른 위조 IP로 밴 회피**가 가능했음. 조치=nginx가 매 요청 덮어쓰는 **`X-Real-IP` 사용**으로 변경(`filter_var` 검증 포함, 없으면 REMOTE_ADDR). 백업 `_theme_bak/functions.php.bak.20260725xff`, php -l 통과. 재검증: 위조 `198.51.100.77` 무시하고 실제 IP 기록.
+    - **⑤ `hsrealty-import/` 스크립트 폴더가 웹루트 안에서 실행 가능** — `wp eval-file` 전용 스크립트인데 누구나 HTTP로 실행 요청 가능(`create_nas_guide.php` 200). 7개 중 4개(`create_refund_policy`·`enrich_rs826`·`import_products`·`setup_payments`)에 `ABSPATH` 가드가 없었음(WP 미부트스트랩이라 즉시 fatal→500, 실제 피해는 없었음). 조치=nginx `location ^~ /hsrealty-import/ {deny all;}` + **4개 스크립트에 `if (!defined('ABSPATH')) exit;` 가드 추가**(php -l 통과, 백업 `/opt/hsrealty/_import_bak_*.20260725`). wp-cli는 nginx를 거치지 않으므로 **운영 사용에 영향 없음**.
+    - **체인 구조**: ②가 로그 경로 노출 → ③이 관리자 ID·신뢰 IP 노출 → ④로 그 IP를 밴/회피 → ①로 RCE 마무리. 개별로는 중간 등급이나 연결 시 정찰~실행 완결 경로였음.
+    - **회귀 검증**: 홈·shop·상품상세·cart·checkout(302=빈 장바구니 정상)·my-account·nas-guide·refund-returns·blog·feed·ads.txt·IndexNow키·admin-ajax·uploads 이미지·테마 CSS·에스크로 PDF **전부 정상**. fail2ban `hsrealty-wp-auth` logpath 변경 없음(경로 유지, 웹 노출만 차단)이라 재설정 불필요.
+  - **✅ 유지보수 3건(2026-07-25) — WooCommerce 업데이트·이미지 갱신·볼륨 정리**. 사전 백업 전부 `/opt/_maint_backup_20260725/`(DB덤프 hsrealty 5.1M·blogwr 3.3M, woocommerce-10.9.3 플러그인 폴더 76M, portainer_data tar 43K) + onbid DB 스냅샷 1회.
+    - **① WooCommerce 10.9.3 → 10.9.4**(`wp plugin update woocommerce`). `wp wc update`=DB 마이그레이션 불필요(이미 10.9.4). 검증: 결제수단 4종 노출순서 유지(신용카드>가상계좌(에스크로)>계좌이체(에스크로)>무통장), KCP 자격증명 `kcp_cert_info` **1268B**(개행 제거본) 3게이트웨이 모두 보존, 상품 77 publish/2 private, PHP fatal 0건.
+    - **② 컨테이너 베이스 이미지 갱신** — ⚠️ **`nginx:1.27-alpine`은 `docker pull` 해도 "up to date"**. 1.27은 상류에서 유지보수가 끝난 브랜치라 **태그 자체가 2025-04-16(1.27.5) 이후 갱신되지 않음** = pull로는 절대 최신화 안 됨. → `docker-compose.yml`의 태그를 **`nginx:stable-alpine`(1.30.4, 2026-07-15 빌드)**으로 변경(백업 `docker-compose.yml.bak.20260725`). 교체 전 **일회용 컨테이너로 현재 conf를 `nginx -t` 검증**(compose 네트워크에 붙여야 upstream 이름 해석됨)해 호환 확인 후 적용. wordpress 이미지도 갱신(PHP 8.3.32, 2026-07-14 빌드) — 이미지 내장 WP가 7.0.2로 설치본과 동일해 **코어 덮어쓰기 없음**(확인 후 진행). mariadb·certbot도 최신 확인.
+      - ⚠️ **함정: WP 컨테이너 재생성 시 nginx가 502** — `docker compose up -d`로 컨테이너가 재생성되면 **컨테이너 IP가 바뀌는데**, nginx는 `proxy_pass http://hsrealty-wp:80` 같은 리터럴 호스트명을 **기동 시점에 1회만 DNS 해석**해 캐시함 → 옛 IP로 계속 붙어 502. **해결=`docker exec onbid-nginx nginx -s reload`**(재해석). blog에서 먼저 겪음. **hsrealty(결제 사이트)는 `docker compose up -d && docker exec onbid-nginx nginx -s reload`로 한 번에 연결해 순단 최소화**할 것.
+      - 검증: nginx 1.30.4 기동, 전 사이트 200, 보안 규칙 전부 유지(uploads PHP·auth로그·임포트폴더·xmlrpc·wp-admin 403), 보안헤더·HSTS 정상, `server_tokens off` 유지.
+    - **③ `portainer_data` 볼륨 삭제**(tar 백업 후). **남은 도커 볼륨 0개**. 미사용 이미지 정리(portainer-ce 187M 등). ※ 남겨둔 것=`nginx:1.27-alpine`(롤백용), dangling wordpress/certbot 구버전(롤백용), 빌드캐시 3.9G — 디스크는 145G 중 14% 사용이라 여유.
+    - **④ onbid 백엔드 이미지 재빌드(2026-07-25, 검토 후 진행)** — 백업: 롤백 이미지 태그 **`onbid-backend-rollback:20260725`**, `backend/{Dockerfile,requirements.txt}.bak.20260725`, `/opt/_maint_backup_20260725/backend-pip-freeze-before.txt`, DB 스냅샷.
+      - **검토 결과 ①: 베이스는 pull 해도 안 올라감** — `mcr.microsoft.com/playwright/python:v1.60.0-noble`은 **상류 마지막 빌드 2026-05-18**이고 MS는 구 태그를 재빌드하지 않음(새 태그 v1.61…로 나감). 실측 결과 이 베이스에 **OS 보안 업데이트 74건 누적**. → Dockerfile에 **`apt-get update && apt-get -y upgrade` 레이어 추가**(Playwright 버전은 그대로 두어 브라우저 번들 정합 유지). 결과 **잔여 보안 업데이트 74 → 0**.
+      - **검토 결과 ②: `playwright` 미고정 = 지뢰** — `requirements.txt`에 `google-genai`·`pymupdf`·**`playwright`**·`pyhwp`·`lxml`이 **버전 미고정**이었음. 재빌드 시 playwright 최신판이 설치되면 베이스 내장 브라우저(**v1.60.0 / chromium-1223**)와 불일치해 **스크래핑 전면 실패**. → 5종 모두 운영 중 실제 버전으로 고정(`playwright==1.60.0` 등).
+      - **검토 결과 ③: 전이 의존성 드리프트** — 위 5종만 고정하고 빌드했더니 전이 의존성이 제멋대로 올라감. 특히 **`pydantic` 2.13.4 → 2.14.0a1(알파)** — FastAPI 검증 경로 핵심이라 허용 불가. → **`backend/constraints.txt` 신설**(2026-07-12 운영 이미지의 `pip freeze` 전량 56줄)하고 `pip install -r requirements.txt -c constraints.txt`로 빌드. **결과: 파이썬 패키지 56개 전부 이전과 동일(드리프트 0)**. ⚠️ **의도적으로 패키지를 올릴 때는 constraints.txt의 해당 줄을 수정할 것.**
+      - **빌드 함정: PEP 668** — apt upgrade가 python3 패키지를 갱신하면서 `EXTERNALLY-MANAGED` 표시가 생겨 `pip install`이 거부됨(`externally-managed-environment`). 이 이미지는 원래 venv 없이 시스템 파이썬에 설치하고 CMD(uvicorn)도 그 경로를 쓰므로 **`--break-system-packages`로 기존 동작 유지**.
+      - **코드 드리프트 없음 확인**: 이미지 빌드일(2026-07-12) 이후 `backend/` 코드 변경 0건 → 재빌드해도 코드는 동일. (⚠️ 로컬 수정이 GitHub 미push 상태라 재빌드는 항상 "현재 로컬 코드"를 굽는다는 점 주의.)
+      - **검증(교체 전 격리 테스트 → 교체 후)**: pip freeze 완전 일치 · OS 보안 0건 · **Playwright 실구동**(chromium 148.0.7778.96로 courtauction.go.kr 로드) · `app.main`·`scheduler` 임포트 · 워커 3종 구문 · DB `integrity ok`/properties 5475/WAL 유실 없음 · 스케줄러 **5개 잡 재등록** · `/health` 200 · API 401(인증 정상 동작) · **대법원 스크래퍼 실행으로 실제 공고 10건 수집 성공**.
+      - ⚠️ **여기서도 nginx DNS 캐시 함정 동일** — 백엔드 재생성 시 IP가 바뀌므로 `docker compose up -d backend && docker exec onbid-nginx nginx -s reload`로 묶어서 실행할 것.
+      - **롤백**: `docker tag onbid-backend-rollback:20260725 onbid-auction-finder-backend:latest && docker compose up -d backend && docker exec onbid-nginx nginx -s reload` (+ 필요 시 Dockerfile·requirements 백업 복원).
 - [x] ~~(권장) ABB 백업 전 WAL DB 사전 스냅샷(`sqlite3 .backup`) 훅~~ — 완료 (2026-07-08, `snapshot-db.sh` + systemd 타이머 02:50 KST, ABB 섹션 참조)
 - [x] ~~**온비드 일일 동기화 성능 개선 + 429 원인 제거**~~ — **완료·재개(2026-07-12, 아래 작업이력 참조)**. 증분 동기화로 상세 API 호출을 신규·결측 물건에만 한정(전건 재조회 폐지) → 429 구조적 소멸. 목록 중복(회차별 예정가 다행) 결정론적 dedup + 시세 실행내 캐시 + 상세 일일 상한/429 백오프 추가.
   로그의 `지원하지 않는 시도: …`는 에러 아님 — `molit_client.py`, 미지원 시·도 시세 조회 스킵 경고.
