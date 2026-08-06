@@ -88,7 +88,7 @@ export default function TestPage() {
             <p className="text-xs text-gray-400">온비드 공매 추천 서비스</p>
           </div>
           <div className="flex gap-2">
-            <a href="/" className="btn-secondary text-xs">← 대시보드</a>
+            <a href="/bankruptcy" className="btn-secondary text-xs">← 대시보드</a>
             <a
               href="http://localhost:8000/docs"
               target="_blank"

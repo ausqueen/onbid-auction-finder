@@ -47,7 +47,7 @@ const Login: React.FC = () => {
 
     try {
       await login(username, password)
-      navigate('/')
+      navigate('/bankruptcy')
     } catch (err: any) {
       setError(err.message || '아이디 또는 비밀번호를 확인해주세요.')
     } finally {

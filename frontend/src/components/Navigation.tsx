@@ -19,7 +19,7 @@ export default function Navigation() {
                 🏛 파산공매 & OnBid
               </div>
               <div className="flex items-center space-x-2">
-                <Link to="/" className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${isActive('/')}`}>
+                <Link to="/bankruptcy" className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${isActive('/bankruptcy')}`}>
                   법원 파산 매각 현황
                 </Link>
                 <Link to="/onbid" className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${isActive('/onbid')}`}>
