@@ -150,8 +150,23 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
       - **✅ 결제창 "진행중" 멈춤(약 2분) 해결(2026-07-22)**: 승인 성공 후 결제창이 안 닫히던 증상 → 원인은 KCP 아님. 결제완료 콜백이 주문 메일 2통(관리자+고객)을 **동기 발송**하는데 wp-mail-smtp(smtp.daum.net:465)가 **간헐적으로 통당 ~60초 지연**(실측: 같은 메일이 62.5초/2.4초 오락가락 — 다음 서버측 타핏, 연결·인증·전송 각 단계는 0.1초 미만 정상). 조치: 자식테마 `functions.php`에 `add_filter('woocommerce_defer_transactional_emails', '__return_true')` 추가(백업 `functions.php.bak.20260722`) → 주문 메일이 크론 비동기 발송으로 전환, 콜백 응답 즉시 반환. ⚠️ 우커머스 외 일반 wp_mail(비번재설정 등)은 여전히 동기 — 다음 SMTP 지연이 잦아지면 발송 서비스 교체 검토.
       - ~~검증 임시 리소스~~ → **전부 정리 완료(2026-07-22)**: 테스트 상품 213·주문 215/216/217·디버그 mu-plugin(hs-kcp-debug.php)+로그·kcp-settings 백업 json 삭제. 환불은 wp-cli `wc shop_order_refund create <주문id> --amount=<금액> --api_refund=true --user=ausqueen`로도 가능(플러그인 process_refund가 KCP STSC 취소 API 직접 호출 — KCP 관리자 불필요).
     - **✅ 가상계좌 실거래 검증 완료(2026-07-22 저녁)**: 테스트 상품 재생성(ID 219, 100원, `/product/payment-test-100/`)로 가상계좌 주문 220 → **발급 성공**(res_cd=0000, 국민은행 40249085811064, 예금주 현성리얼티, 기한 3일 — 가상계좌 KCP 개통 확정) → 주문 `awaiting-vbank`(입금대기) 전환·고객화면 계좌안내 표시 정상. 계좌정보 메타는 플러그인이 postmeta(구형)에 저장하나 자체 HPOS 호환계층(`Cosmosfarm_Pay_WC_HPOS::get_meta`)이 읽기+백필 — 표시코드 전부 이 경로라 실사용 문제없음. **실입금(100원) 후 자동전환 실패** → 원인: **KCP 입금통지(웹훅)가 아예 미발송**(KCP 통지 IP 210.122.176.144·103.215.144.173/174 접속 0건) = KCP 파트너관리자에 웹훅 URL 미등록이었음. → **사용자가 웹훅 URL 등록 완료(UTF-8)**: `https://hsrealty.co.kr/?wc-api=cosmosfarm_pay_wc_nhnkcp_noti_vbank` (플러그인 핸들러가 KCP IP 화이트리스트+tx_cd=TX00 처리, 입금 시 payment_complete+재고차감+새주문메일). 등록 전 입금건이라 웹훅 발송이력 없음 → **주문 220 수동 결제완료 처리 후 환불**(STSC res_cd=0000, 18:40) 완료. ⚠️ **미검증 잔여**: 웹훅 실수신(등록 이후 첫 가상계좌 입금 시 자동전환 확인 필요) · 환불금 100원이 환불계좌(주문 시 수집: 하나은행, 예금주 원유호)로 실제 반환되는지(수일 소요, 미도착 시 KCP 관리자에서 환불계좌 입력 확인). **계좌이체는 결제창 노출 확인까지만 하고 실결제 테스트 생략(사용자 결정)** — 카드·가상계좌와 동일 자격증명/승인 경로(STSC 취소 포함)라 리스크 낮음, 첫 실주문에서 자연 검증. 테스트 상품 219·디버그 로거는 삭제 완료. **주문 220(환불됨)은 보존 중** — 환불금 100원 하나은행 도착 확인 후 삭제 예정(거래번호 26833404346625·환불계좌 기록 보전 목적).
-- **미완**: ~~결제~~(✅ 2026-07-22 KCP 카드결제 라이브 검증 완료)·~~KCP 에스크로 실거래 적용(escw_used=N)~~(✅ 2026-07-25 v6.8 에스크로 게이트웨이 적용, 웹훅등록·100원 실거래 검증만 잔여 — 위 에스크로 항목 참조)·상품 상세설명 실제 스펙 보강(DS225+ 외 나머지 제품)·대리점 데이터(D4ES/D4ESO) 정정·Solapi 핸드폰 본인인증.
+  - **✅ SK네트웍스 추가자료 반영 + 상세설명 일괄 보강(2026-07-28)**: 자료 원본 `/mnt/nas/temp/`(`20260727_SK네트웍스추가자료/`·`ExcelSaveTemplate_260601_hsrealty.xlsx`(네이버 일괄등록)·`260601_시놀로지 단가표_SS.xlsx`·`이미지/`).
+    - **신규 상품 6종 등록**: BC510(id273)·TC510(id274) IP카메라 각 **328,000** / MSD01-256G(275) **194,000**·MSD01-512G(276) **387,000**·MSD01-1T(277) **581,000** 감시용 microSD / TC500(279) **419,000**. microSD용 **`메모리 카드` 카테고리 신설(term 40)** — 기존 `메모리`(33)는 NAS RAM이라 분리. 카메라는 `IP 카메라`(21). 상품 **77→83종**.
+    - 이미지 45장 업로드. **GIF는 원본 애니메이션 유지**(사용자 요청. BC510/TC510 각 19MB — `loading=lazy` 적용). ⚠️ **함정**: 세로로 긴 상세이미지는 WP `big_image_size_threshold`(2560px)가 자동 축소해 **860px→268~383px**가 되어 사양표 글자가 뭉갬 → 임포터에서 **`wp_get_original_image_url()`로 원본 URL 사용**해 해결.
+    - **기존 상품 30건 상세 보강**: 네이버 일괄등록 엑셀 **Y열의 공급사 CDN 상세이미지**(`gi.esmplus.com/sgoffice39/Synology/...`)를 **외부 링크 그대로**(사용자 결정) 삽입 + 제품정보표(브랜드·제조사·모델명·수입사 SK네트웍스서비스·A/S **031-520-5552**) + A/S·반품 안내문(BF열). 본문 평균 **870→2,300자**. 29 URL 전수 200 확인 후 삽입. ⚠️ **외부 CDN 의존** — 공급사가 파일을 옮기면 30개 상품 상세가 한꺼번에 깨짐(자체호스팅 전환은 다운로드 스크립트만 추가하면 됨).
+    - **가격 체계 확정**: 단가표는 `노출가(VAT포함)/공급가(포함)/공급가(별도)` 3단. 쇼핑몰 **76건이 노출가와 정확히 일치** → 쇼핑몰 = **노출가 체계**. 노출가÷공급가(별도) 중앙값 **1.372배**. 예외 2건은 사용자 확인 결과 **현행 유지 확정** — DS1825+ **2,522,000원**(단가표 2,134,000과 다르나 쇼핑몰이 맞음), BC510·TC510 **328,000원**(노출가 맞음. BC500 419,000보다 싼 것이 정상).
+    - 스크립트(전부 멱등, `data/wp/hsrealty-import/`): `import_sk.php`+`sk_products.json`(신규 5종) / `enrich_xl.php`+`xl_enrich.json`(상세보강 30건, `SK_XL_START`~`SK_XL_END` 마커 구간만 교체) / `create_tc500.php`. ⚠️ **`wc_get_product_id_by_sku()`는 조회테이블 기반이라 draft를 못 찾아 중복 생성함** → postmeta 직접 조회로 교체(1차 등록분 5건 삭제함).
+  - **✅ 리드 마그넷(자료 신청 폼) 구축(2026-07-28)**: NAS 소개자료 발송용 이메일을 **옵트인으로 직접 수집**하는 폼. 시작 시점 회원 0명·주문 0건이라 보유 리스트가 전무했음. ⚠️ 한국은 **자동수집(크롤링)·구매 리스트가 불법**(정보통신망법 §50조의2, 1년 이하 징역/1천만원 벌금), 동의 없는 광고 발송은 과태료 3천만원(§50) → 옵트인 외 선택지 없음.
+    - **mu-plugin** `data/wp/wp-content/mu-plugins/hs-lead-magnet.php` — 숏코드 `[hs_lead_form]`, CPT `hs_lead`, 관리자 메뉴 "자료 신청" + **CSV 내보내기**(BOM 포함).
+    - **설치 위치**: hsrealty `nas-guide`(page 209) 하단에 폼 본체 / blog.wonrealty.kr **post 104·105**(NAS 글 2편)에 CTA 배너 → 폼으로 유도(`utm_campaign=nas_lead`).
+    - **수집**: 필수=이메일·회사명·동의 / 선택=담당자·연락처·사용인원·용도·문의. **동의 이력(시각·IP·동의문구 전문)을 함께 저장** — 분쟁 시 입증용.
+    - **발송**: 신청자에게 제안서 PDF 자동 첨부 + 가이드 링크, 관리자(`hs@hsrealty.co.kr`)에게 즉시 알림. 기존 WP Mail SMTP(다음) 사용.
+    - **PDF**: `uploads/hsrealty-docs/nas-proposal.pdf` (DS225+ 제안서 12버전, 16p·727KB). **파일이 있으면 첨부, 없으면 링크만** 안내하는 구조라 **같은 경로에 덮어쓰기만 하면 코드 수정 없이 갱신**됨. 원본은 `/mnt/nas/temp/`. ※ 10p 도입사례에 금강다온부동산 실명·자택 원격지 구성이 노출되나 **사용자가 그대로 가기로 확정(2026-07-28)**.
+    - ⚠️ **함정: `admin-post.php`가 403** — nginx가 `/wp-admin/` 전체를 신뢰 IP로 제한(2026-07-08 하드닝)하므로 워드프레스 폼의 표준 제출 경로를 쓸 수 없음. **nginx를 푸는 대신 폼 페이지 자체로 POST 받아 `template_redirect`에서 처리**하도록 구현. 같은 이유로 앞으로 이 사이트에 폼을 만들 때 `admin-post.php`/`admin_post_*` 훅을 쓰면 안 됨(`admin-ajax.php`는 예외적으로 허용돼 있음).
+    - 스팸 방지: 허니팟 필드 · nonce · **동일 이메일 5분 내 재제출 차단**. 실제 신청 2회로 저장·동의이력·PDF 첨부 발송 전 경로 검증 후 테스트 데이터 삭제(현재 0건).
+- **미완**: ~~결제~~(✅ 2026-07-22 KCP 카드결제 라이브 검증 완료)·~~KCP 에스크로 실거래 적용(escw_used=N)~~(✅ 2026-07-25 v6.8 에스크로 게이트웨이 적용, 웹훅등록·100원 실거래 검증만 잔여 — 위 에스크로 항목 참조)·~~상품 상세설명 실제 스펙 보강~~(✅ 2026-07-28 30건 보강. 단가표에 없는 잔여 53종은 미적용)·대리점 데이터(D4ES/D4ESO) 정정·Solapi 핸드폰 본인인증.
 - **⏳ 판매채널 확장(2026-07-12 계획, 사용자 요청 = 나중에 진행)**: 검색 등록·방문분석 완료 후 다음 단계로 **①네이버 쇼핑 노출 + ③구글 머천트 센터**(②지역검색·스마트플레이스는 이번엔 제외). 두 채널 공통 선결과제 = **WooCommerce 79상품 → 상품피드(feed) 생성**(제목·가격KRW·이미지·재고·상품URL·카테고리, 가급적 GTIN/브랜드). 생성방식 후보: 피드 플러그인(CTX Feed / Product Feed PRO 등) 또는 커스텀 엔드포인트(WP REST/eval-file로 XML·TSV 출력). **비공개 상품(ID24·80)은 피드서 제외** 필수.
+  - **⚠️ 이 계획은 낡음(2026-07-29 정정)** — ①은 이미 별도 경로로 진행되어 있었음: 네이버 스마트스토어에 시놀로지 30종이 **WooCommerce 피드 연동이 아니라 수동/독립적으로 이미 등록**돼 판매 중(아래 2026-07-29 이력 참조). WooCommerce 피드 자동연동은 여전히 미착수.
   - **① 네이버 쇼핑**: 경로A=**네이버 스마트스토어 입점**(별도 판매자 가입·정산, 상품 재등록 필요) / 경로B=**쇼핑파트너센터 가격비교 EP 연동**(자체몰 유지한 채 상품DB EP 등록). 선결=네이버 커머스ID/판매자 가입, 사업자·**통신판매업 신고(제2026-경기안산-1395호 보유)**, EP 포맷(네이버 전용 필드). 어느 경로로 갈지 사용자 결정 필요.
   - **③ 구글 머천트 센터**: Merchant Center 계정 생성 → **구글 상품 피드**(Google Shopping 스펙: id·title·price·availability·image_link·link·brand·gtin/mpn) 제출 → 무료 리스팅(Shopping 탭 무료노출)+선택적 유료광고. **GA4(G-KN1MXMH74M) 이미 연동돼 전환추적 가능**. 선결=구글계정·피드 생성·정책검토(배송/반품 정보 필요).
   - 착수 시 참고: SEO/애널리틱스 훅은 자식테마 `functions.php`에 있음. 피드는 별도 `hsrealty-import/` 스크립트나 플러그인으로. 재개하려면 위 "선결과제(상품피드)"부터.
@@ -213,6 +228,22 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   - 스케줄: systemd `onbid-db-snapshot.timer` → **매일 02:50 KST**(ABB 03:00 백업 10분 전). 서비스 `onbid-db-snapshot.service`(oneshot). 유닛=`/etc/systemd/system/onbid-db-snapshot.{service,timer}`.
   - 수동 실행/확인: `sudo /opt/onbid-auction-finder/scripts/snapshot-db.sh` · `systemctl list-timers onbid-db-snapshot.timer` · 로그 `/var/log/onbid-db-snapshot.log` + `journalctl -u onbid-db-snapshot`.
   - ⏭️ (선택) 더 타이트한 결합 원하면 DSM ABB 작업 → Pre/post script 에 이 스크립트를 pre-script 로 지정(현재는 타이머 방식이라 불필요).
+
+## Tailscale — hyunsung·realty99·NAS 2대 통합 tailnet (2026-08-02~03)
+사용자가 기존에 집 NAS·회사 NAS를 Tailscale로 연결해 쓰던 tailnet에, **hyunsung·realty99 서버 2대를 추가**. 목적=NAS 접근(NFS·ABB)을 공인 인터넷(DDNS) 대신 암호화된 tailnet 경유로 전환해 노출면 축소.
+- **tailnet 구성원(4대)**: hyunsung `100.95.122.4` · realty99 `100.65.176.46` · **ds725-main**(구 homenas) `100.99.184.84` = `ausqueen.synology.me`(공인 DDNS)와 동일 기기, `/volume2/vpsshr/linux` 제공 · **ds224-backup**(구 dasung000) `100.84.141.124`.
+- 두 서버에 공식 설치스크립트(`curl -fsSL https://tailscale.com/install.sh | sudo sh`)로 설치 후 `tailscale up --hostname=<hyunsung|realty99>`(최초 1회 브라우저 로그인 필요). 전 노드 간 **직접 P2P 연결 확인**(DERP 릴레이 아님, NAS 공인IP 116.41.161.23·58.225.109.232 경유 UDP hole-punch 성공).
+- **NFS(NAS→서버) 전환**: ds725-main DSM의 NFS 권한 규칙에 두 서버 tailscale IP를 **/32 단위로**(광역 `100.64.0.0/10` 대신 최소권한 채택) 추가 → 포트(2049) 자체는 이미 전 인터페이스에 열려있었으나 기존 권한규칙(공인 IP 2개 한정)에 막혀 `access denied by server`였던 걸 해소. "비특권 포트 허용"은 **불필요**(root fstab 마운트는 기본 특권포트 사용, 지금과 동일 조건).
+  - 양쪽 `/etc/fstab`을 `ausqueen.synology.me:/volume2/vpsshr/linux` → **`100.99.184.84:/volume2/vpsshr/linux`**로 교체(백업 `/etc/fstab.bak.20260802`), 사용 중 프로세스 0건 확인 후 라이브 리마운트(`umount && mount -a`)로 즉시 전환·검증(디렉터리 목록 이전과 동일 = 회귀 없음).
+  - **부팅 순서 보장**: `/etc/systemd/system/mnt-nas.mount.d/tailscale.conf`(양쪽) 추가 — `After=tailscaled.service`+`Requires=tailscaled.service`로, tailscale 연결 전에 마운트 시도해 실패하는 경쟁상태 방지(기존 `nofail`이라 실패해도 부팅은 안 막혔지만, 이제 아예 순서를 보장).
+- **ABB(Active Backup for Business, 서버→NAS) 전환**: `abb-cli -c -a <addr> -u <user> -p <pw>`는 **이미 연결된 상태에서 재실행 불가**(exit 6 "Already connected") → 먼저 `abb-cli -l`(로그아웃, **NAS DSM 관리자 계정 인증 필요** — hyunsung567과 별개 계정, 대화형 프롬프트라 사용자가 직접 터미널에서 실행) 후 `abb-cli -c -a 100.99.184.84 -u hyunsung567 -p ***`로 재연결. **인증서 경고 발생**(cert CN=`ausqueen.synology.me`인데 IP로 접속 → "Proceed anyway?" 프롬프트, 비대화형 실행이라 default(y)로 자동 진행 — tailnet 자체가 WireGuard로 암호화·인증되므로 허용 가능한 트레이드오프로 판단). **device_id 그대로 유지**(hyunsung=20, realty99=19) → 신규기기 중복등록 없이 동일 백업이력·정책 유지 확인.
+  - ⏳ **다음 자동 백업(2026-08-03 03:00 KST)이 tailscale 경로의 첫 실전 검증**(abb-cli엔 수동 트리거 명령이 없어 CLI로 미리 테스트 불가, DSM 콘솔 "지금 백업"으로만 강제 가능).
+- ⚠️ **비밀번호 노출 주의**: 이 작업 중 hyunsung567 계정 비밀번호가 대화 세션에 평문으로 노출됨(bash `!` 히스토리 확장 문제로 재입력하다 발생) → **사용자에게 교체 권장 안내함**(비필수·사용자 판단에 맡김).
+- **✅ 마무리 완료(2026-08-03, 사용자가 "지금 바로 끝내자"고 결정 — 애초 권고는 며칠 안정성 확인 후였음)**: ① NAS(ds725-main) NFS 권한 규칙에서 **기존 공인 IP 2개(5.104.87.178·5.104.87.20) 규칙을 삭제**(사용자가 DSM에서 직접 실행), tailscale IP 규칙만 남김. 검증: 공인 경로(`ausqueen.synology.me`)로 마운트 시도 → **`access denied by server`로 정상 차단** 확인, tailscale 경로(`100.99.184.84`) 마운트는 문제없이 유지. → **NFS가 공인 인터넷에서 완전히 걷어내짐.**
+  ② 양쪽 Uptime Kuma의 "NAS NFS(synology)" 모니터(id=4, PORT 타입) hostname을 `ausqueen.synology.me` → **`100.99.184.84`**로 갱신(임시 `python:3.12-alpine`+`uptime-kuma-api<2.0` 컨테이너로 API 호출, host에 패키지 설치 안 함 — 기존 패턴 재사용). 오탐(다운 알림) 없이 정상 반영 확인.
+  - ⚠️ **참고**: realty99↔hyunsung 상호 사이트 모니터(`*.co.kr`·`*.kr` 공인 도메인 체크)는 **의도적으로 tailscale로 안 바꿈** — 그건 실제 방문자가 겪는 공인 경로(DNS·nginx vhost·TLS) 자체를 검증하는 게 목적이라 tailscale IP로 바꾸면 오히려 장애를 놓치게 됨. NAS NFS·ABB만 tailscale 대상(관리자·데이터 전용 채널이라 공개될 이유가 없었음).
+  - **롤백이 필요해지면**: NAS DSM에서 NFS 권한 규칙에 공인 IP(5.104.87.178·5.104.87.20) 재추가 + 양쪽 fstab을 `/etc/fstab.bak.20260802`로 복원 + Kuma 모니터 hostname을 `ausqueen.synology.me`로 되돌리기.
+- **롤백**: `/etc/fstab.bak.20260802` 복원 + `mnt-nas.mount.d/tailscale.conf` 삭제 + `mount -a` (+ ABB는 `abb-cli -l`(admin인증) 후 `-c -a ausqueen.synology.me ...`로 재연결).
 
 ## GitHub
 - **Repo**: ausqueen/onbid-auction-finder (private)
@@ -334,11 +365,162 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - ⚠️ 되돌리기: netplan 백업 복원 + `99-disable-network-config.cfg`·`resolved.conf.d/dns.conf` 삭제 후 `netplan apply` & `systemctl restart systemd-resolved`.
 - **realty99(5.104.87.20)도 예방 적용(2026-07-12)**: 동일하게 Contabo DNS 사용 중이라 예방 차원에서 같은 3조치 적용(resolved.conf.d/dns.conf·netplan nameservers 1.1.1.1·8.8.8.8 우선·cloud-init 네트워크 disable, 백업 `50-cloud-init.yaml.bak.20260712`). realty99↔hyunsung 양방향 도메인 조회·접속 전부 정상 검증(realty99→wonrealty.kr·hsrealty.co.kr 200, portainer는 IP화이트리스트로 403=정상). ※ realty99에선 실제 장애는 없었음(hyunsung 도메인은 dothome NS가 아니라 SERVFAIL 대상 아니었음).
 
+## 2026-07-26 작업 이력 — 상호 감시 모니터링(Uptime Kuma) 구축
+- **구조**: realty99 ↔ hyunsung 두 서버가 **서로의 사이트를 감시**(자기 서버가 죽으면 자기 Kuma도 같이 죽으므로 교차 배치). 각 서버 `/opt/monitoring/docker-compose.yml`, 이미지 **`louislam/uptime-kuma:1` 고정**(⚠️ 설정 자동화에 쓴 python `uptime-kuma-api`가 2.x 미지원 — 임의로 2.x 올리지 말 것), **127.0.0.1:3001에만 바인딩**(ufw inactive라 공개 바인딩 금지). 대시보드 접속: `ssh -L 3001:127.0.0.1:3001 <서버>` 후 http://localhost:3001.
+- **이 서버(hyunsung) Kuma 감시 대상**: realty99.co.kr, blog.realty99.co.kr, ~~NAS 미포함~~→**NAS NFS(2049) 추가(2026-07-29)**. / **realty99 Kuma 감시 대상**: hsrealty.co.kr, wonrealty.kr, blog.wonrealty.kr, NAS NFS(ausqueen.synology.me:2049 포트체크).
+- **⚠️ 2026-07-29 발견·수정: NAS 다운 알림 편측 문제** — NAS가 펌웨어 업데이트로 5분+ 다운됐을 때 **realty99 Kuma는 알림(다운·복구) 정상 발송, hyunsung/hsrealty 쪽은 무응답** → 원인은 장애가 아니라 **설계상 hyunsung Kuma에 NAS 모니터가 애초에 없었음**(구축 시 NAS 감시를 realty99 쪽 하나만 두기로 함). 실측: NAS 다운 11:35:31~11:38:38(EHOSTUNREACH→ECONNREFUSED, 약 3분), 같은 시간 hsrealty.co.kr·wonrealty.kr·blog.wonrealty.kr은 200 OK 유지(둘 다 `/mnt/nas` 실시간 미사용이라 서비스 자체엔 영향 없음). **realty99 서버 자체가 죽으면 NAS 감시도 함께 죽는 단일장애점**이라 판단 → hyunsung Kuma에도 동일 `NAS NFS(synology)` 포트체크(hostname=ausqueen.synology.me, port=2049, interval 60s, retry 60s×2) monitor id=4 추가 + email-daum·kakao 알림 연결(`notificationIDList=[1,2]`) 완료. 이제 **NAS 다운 시 두 서버 모두에서 이중 알림**. 추가는 `uptime-kuma-api<2.0`을 임시 `python:3.12-alpine` 컨테이너(`--network host`, 설치 즉시 폐기)로 API 호출해 처리 — 호스트에 패키지 설치 안 함(PEP668 externally-managed라 회피).
+- **알림**: smtp.daum.net:465(ceo@realty99.co.kr, 비번은 realty99 `/opt/daon/.env`의 `MAIL_SMTP_PASSWORD` 재사용) → **ausqueen@hanmail.net**. 발신자명 `hsrealty-monitor`/`realty99-monitor`로 어느 쪽 감시자가 보냈는지 구분됨. 모니터 60초 간격·재시도 2회 → 다운 후 약 2~3분 내 메일.
+- **검증 완료**: 전 모니터 UP, 양쪽 모두 SMTP 테스트 발송 성공("Sent Successfully"), realty99 쪽은 모의 DOWN(죽은 주소 임시 모니터)으로 상태 전이까지 확인.
+- **계정**: admin `ausqueen`, 비밀번호는 realty99 `/opt/monitoring/admin_password.txt`(600) — 양쪽 Kuma 동일.
+- ⚠️ 재부팅 점검 시 `sudo docker ps`에 `uptime-kuma` 기동 여부 확인 항목 추가할 것(restart: unless-stopped라 자동 기동 예상).
+- **카카오톡 알림 추가(같은 날)**: 각 서버에 `kakao-relay` 컨테이너(같은 compose) — Kuma 웹훅 → 카카오 나에게 보내기 API → 사용자 카톡. 스크립트·토큰은 `/opt/monitoring/kakao/`(tokens.json 600, 서버별 독립 토큰·3일 주기 자동갱신으로 재동의 불필요). 카카오디벨로퍼스 앱은 기존 "파산공매" 앱 재사용, Redirect URI `https://realty99.co.kr/kakao-auth`. 이메일(다음 SMTP)과 카톡(카카오 API)이 경로 분리라 이중화됨. 재부팅 점검 시 `kakao-relay` 컨테이너도 확인할 것.
+- **DB 사전 정합 덤프 추가(같은 날)**: `db-predump.timer`(매일 02:40 KST, ABB 03:00 직전) → `/opt/monitoring/db_predump.sh`가 hsrealty-db·blogwr-db MariaDB 전체를 `/opt/backup/db_predump/`에 덤프(3일 보존, ABB에 포함됨). 온비드 SQLite는 기존 02:50 스냅샷이 계속 담당. 성공 시 로컬 Kuma 푸시 모니터에 하트비트 → 26시간 무신호면 이메일+카톡 경보. realty99에도 동일 구성(그쪽은 pg_dumpall+blog MariaDB).
+
+## 2026-07-29 작업 이력 — hsrealty 네이버 스마트스토어 존재 확인 + SK 8/1 가격변동 반영
+- **⭐ 문서 정정**: 2026-07-12 "판매채널 확장" 계획에는 네이버 쇼핑 미입점으로 기록돼 있었으나, **실제로는 네이버 스마트스토어에 시놀로지 상품 30종이 이미 등록·판매 중**이었음(등록 시점 미상 — 이 CLAUDE.md에 기록되지 않은 채 진행됨). **관리 방식은 API 연동이 아니라 스마트스토어센터 "상품 일괄수정" 엑셀 다운로드/업로드 수동 방식**(이 서버에 네이버 커머스API 키 없음).
+- **SK네트웍스 8/1자 가격변동 반영**: SK가 보낸 `260803_시놀로지 단가표_SS_신구비교.xlsx`(0601→0801 전체 189개 품목 신구비교, 신규36·단종33·가격변동79·견적문의41)와 스마트스토어 상품 다운로드 엑셀(30개, 상품번호 `136667844xx`대)을 모델코드로 매칭 → 29개 가격변경 + TC500 1개(단가표상 상태 모순: "견적/문의"인데 0801란엔 "단종" 텍스트 → 사용자 판단으로 **단종 처리, 재고 0으로 설정해 품절/판매중지**) = 총 30개 전량 매칭 성공(미매칭 0).
+  - 눈에 띄는 인상 3종(단가표 원본 그대로 반영, 특이사항이라 기록): **DS1525+** 1,746,000→2,058,000(+312,000) · **DS925+** 1,164,000→1,402,000(+238,000) · **DS725+** 1,066,000→1,309,000(+243,000). 나머지는 대부분 소폭 인하.
+  - 산출 파일 `네이버가격변경_20260803.xlsx`(원본 일괄수정 양식 그대로 유지, F열 판매가만 수정 + TC500은 M열 재고수량만 0으로) → `/mnt/nas/temp/`에 생성, 사용자가 3~5행(작성가이드) 삭제 후 스마트스토어센터에 업로드 → **반영 완료 확인(사용자, 2026-07-29)**.
+  - 매칭 스크립트는 세션 스크래치패드 1회성(저장 안 됨) — 재사용 필요 시 이 항목 참고해 재작성.
+- ✅ **hsrealty 자체몰(WooCommerce) SK 8/1 단가표 반영 완료(같은 날 후속)**: hsrealty 실제 85종을 SK 189개 전체와 SKU 매칭해 3종 분류 후 1~3단계 실행 완료.
+  - **① 가격변경 83건 — 완료(2026-08-02)**: 78건 정상매칭 + 5건(7/28 신규등록한 BC510·TC510·MSD01-256G/512G/1T, SK표에선 "신규"분류지만 hsrealty엔 이미 있어 사실상 가격변경)을 스크립트 `data/wp/hsrealty-import/sk0801_price_update.php`+`sk0801_price_updates.json`(멱등, `wc_get_product`→`set_regular_price/set_price`)로 반영·라이브 검증까지 했으나 **사용자가 실행계획 변경을 이유로 즉시 전량 원복 지시** → `sk0801_price_revert.php`로 old값 복원. 이후 **사용자가 인상 3종만 우선 반영 요청** → `sk0801_price_update_inc3.php`+`sk0801_price_updates_increase3.json`로 DS725+(1,066,000→1,309,000)·DS925+(1,164,000→1,402,000)·DS1525+(1,746,000→2,058,000) 3건만 재반영·라이브 확인 완료(2026-07-29). **✅ 나머지 80건도 2026-08-02에 반영 완료** — 사전 `db_predump.sh` 수동백업 후 `sk0801_price_update.php` 재실행(멱등이라 인상 3종은 자동 스킵) → 80건 신가 반영, 라이브 확인(BC500·DS225+·D4ER01-64G·HAT3320-20T 등) 정상. **→ SK 8/1 단가표 83건 전량 반영 완료.** 신규등록 15건(자료 도착 시)만 잔여.
+  - **② 단종 2건 완료 — 유지**(가격변경 원복과 별개로 사용자가 유지 확정) — E10G18-T1(id96)·TC500(id279, 네이버 스마트스토어와 동일 판단) → `catalog_visibility=hidden`+`post_status=private`(기존 ID24·80 패턴). 비로그인 404 확인 완료.
+  - **③ 사전 백업**: 실행 직전 `sudo /opt/monitoring/db_predump.sh` 수동 1회 실행(`hsrealty_mariadb_20260729.sql.gz`, 매일 자동덤프와 별개).
+  - **④ 신규등록 15건 — 미착수, 자료 대기 중**: SK 8/1 단가표에 있으나 hsrealty엔 없는 31개 중 오프라인견적(가격없음) 15건과 상태모순 1건(RT2600ac, "신규"인데 0801란=단종 텍스트)은 **등록 제외 확정**(사용자 결정), 나머지 **가격 확정 15건이 등록 대상**으로 확정됐으나 **이미지·상세설명·카테고리 자료가 없어 보류 중**(7/28 SK등록 때와 달리 이번 단가표엔 가격만 있고 이미지 CDN 링크 등 상세자료 없음). SK에 자료 요청 필요. 500만원 초과인 D4ER02-64G(6,737,000)는 기존 `hs_is_inquiry_product()` 단가기준 자동판별 로직이 이미 있어 등록만 하면 문의CTA 자동적용(코드 수정 불필요, 확정).
+    - **등록 대상 15건**(모델 | 노출가0801 | 분류): Surveillance365 Business 1License-1Y \| 95,000 \| 라이선스 · BST170-4T \| 882,000 \| BeeStation 4TB · DS725neo+ \| 935,000 · DS925neo+ \| 1,028,000 · DS1525neo+ \| 1,496,000 · DS1825neo+ \| 1,870,000 (DiskStation Neo plus 4종) · RS1226+ \| 3,563,000 · RS1226RP+ \| 4,231,000 (RackStation 8bay 2종) · FS200T \| 1,684,000 (RackStation Enterprise 6bay) · RX426 \| 1,224,000 (확장베이 4bay) · D4ER02-16G \| 2,621,000 · D4ER02-64G \| 6,737,000(500만초과→문의CTA) · D4ER03-32G \| 4,118,000 (Memory 3종) · E10G30-T1 \| 242,000 (PCI카드)
+    - **제외 확정 16건**(오프라인견적 15 + RT2600ac): RS11626xs+·FS200T… 아 FS200T는 위 포함이니 제외목록엔 없음. 제외=PAS7700·PAX224·SPU7200D-1920G/3840G/7680G·P2100G·PAS7700 SW유지보수·HAT5320-4T/8T·HAT5310-16T·HAT5320-20T·HAS5310-12T/20T·HAS5320-24T·RS11626xs+(SA시리즈 후속)·RT2600ac(상태모순)
+    - **재개 방법**: SK에서 위 15건 이미지·상세스펙 받으면 → 카테고리 매핑(신규 카테고리 필요할 수 있음: DiskStation Neo plus, BeeStation, RackStation Enterprise) → `import_sk.php` 패턴으로 신규 등록 스크립트 작성.
+
+## 2026-08-05 작업 이력 — NAS tailscale TUN 인터페이스 버그 수정 + hyunsung·realty99 SSH 22번 포트 화이트리스트 전환
+
+### ✅ NAS 2대(ds725-main·ds224-backup) tailscale TUN 인터페이스 미생성 버그 수정
+- **증상**: ds725-main → ds224-backup Hyper Backup/ABB 설정 중 "인터넷 오류" 발생. 두 NAS를 spk 1.58.2→1.102.2로 업데이트하고 재부팅했는데도 재현.
+- **진단**: `tailscale status`엔 정상 표시되고 `tailscale ping`(자체 프로토콜)도 성공했지만, **`ip addr show tailscale0`이 "Device does not exist"** — 즉 커널 TUN 인터페이스가 아예 안 만들어져 있어서 OS 레벨 라우팅(일반 ping·실제 백업 트래픽)이 전부 실패하고 있었음. tailscaled 로그(`/volume{1,2}/@appdata/Tailscale/tailscaled.stdout.log`)에서 원인 확인.
+- **원인 2가지(둘 다 필요)**:
+  1. **`CAP_NET_ADMIN` 캐퍼빌리티 유실** — spk 업데이트로 `tailscaled` 바이너리가 교체되면서 파일에 걸려있던 캐퍼빌리티(setcap) xattr가 날아감. 로그: `tstun.New("tailscale0"): permission denied`(ds725, 캐퍼빌리티 문제). `sudo getpcaps <pid>`로 빈 값(`=`) 확인.
+  2. **`/dev/net/tun` 장치 파일 권한 600(root 전용)** — tailscaled는 `tailscale`이라는 비root 계정으로 도는데 장치를 열 권한이 없음. 로그: `tstun.New("tailscale0"): operation not permitted`(ds224, 캐퍼빌리티는 있는데 장치 권한 문제 — 원인이 서로 다름에 주의).
+  - 캐퍼빌리티가 없거나 장치를 못 열면 tailscaled는 **`netstack`(유저스페이스 폴백) 모드로 조용히 전환**됨 — 이 모드는 tailscale 자체 프로토콜(status/ping)엔 응답하지만 일반 OS 라우팅은 안 됨(공식 문서상 아웃바운드는 SOCKS5/HTTP 프록시로 별도 설정해야 함). `ip addr show`/`/proc/net/dev`로 인터페이스 부재를 확인하는 게 확실한 진단법 — netstack 폴백이어도 우연히 ping이 통과되는 것처럼 보이는 애매한 상태가 나올 수 있어(정확한 메커니즘 불명), **tailscaled 자체 로그의 `tstun.New(...)` 라인이 최종 판단 근거**임.
+- **수정**: 두 NAS 다 동일 조치(경로만 다름: ds725-main=`/volume2/@appstore/Tailscale/`, ds224-backup=`/volume1/@appstore/Tailscale/`).
+  ```
+  sudo chmod 0666 /dev/net/tun
+  sudo setcap cap_net_admin,cap_net_raw+eip /volume{1,2}/@appstore/Tailscale/bin/tailscaled
+  ```
+  적용 후 Package Center에서 Tailscale 중지→실행(재시작해야 새 캐퍼빌리티가 새 프로세스에 반영됨, setcap은 이미 뜬 프로세스엔 소급 적용 안 됨).
+- **재부팅해도 유지되도록 부팅 스크립트(Task Scheduler, 트리거=부팅 시, 실행계정=root) 갱신** — 기존에 `/dev/net/tun` mknod+chmod만 하던 스크립트가 있었으나 **`tun` 커널 모듈 로드보다 chmod가 먼저 실행되는 경쟁상태**로 인해 이후 Tailscale 자체가 부르는 `modprobe tun`이 실제 모듈 최초 로드를 트리거하면서 devtmpfs가 장치를 기본권한(600)으로 재생성 → 무력화되는 버그가 있었음. **`modprobe tun`을 스크립트 맨 앞에 명시적으로 추가**해서 해결(모듈을 먼저 확실히 로드시켜두면, 이후 Tailscale이 부르는 `modprobe tun`은 no-op이 되어 권한이 유지됨). 최종 스크립트(volume 번호만 서버별로 다름):
+  ```bash
+  modprobe tun
+  mkdir -p /dev/net
+  [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200
+  chmod 0666 /dev/net/tun
+  setcap cap_net_admin,cap_net_raw+eip /volume{1,2}/@appstore/Tailscale/bin/tailscaled
+  sleep 5
+  synopkg restart Tailscale
+  ```
+  ds725-main·ds224-backup 양쪽 실제 재부팅으로 `tailscale0` 인터페이스 생성 + `ping` 실제 왕복 성공까지 검증 완료.
+- **⚠️ MagicDNS는 DSM에서 구조적으로 작동 안 함**(tailscale GitHub Issue #4017, 미해결) — DSM이 tailscaled에게 `/etc/resolv.conf` 수정 권한을 안 줘서(`rename ... permission denied`), 관리자 콘솔에서 MagicDNS를 켜놔도 NAS 자체 OS는 `.ts.net` 이름을 못 풂. **NAS 위에서 도는 앱(Hyper Backup·ABB 등)에 tailscale 대상을 입력할 때는 반드시 MagicDNS 이름이 아니라 tailscale IP(`100.x.x.x`)를 직접 입력할 것.**
+- **참고(완료는 아님, 방법만 확인)**: DSM 인증서 저장소에 tailscale 발급 HTTPS 인증서를 넣으려면 `tailscale configure synology-cert`(1.64.0+ 필요, Task Scheduler로 root 실행 가능) 또는 수동 `tailscale cert <이름>` 후 제어판→보안→인증서에서 가져오기. 기존 DDNS 인증서와는 SNI로 공존 가능(서비스별로 "구성"에서 명시 지정 안 해도 호스트명에 따라 자동 분기됨).
+
+### ✅ hyunsung·realty99 SSH(22번) 공인 IP 화이트리스트 전환
+- **배경 점검 결과**: 그동안 두 서버 다 22번 포트가 **전체 인터넷에 완전히 열려있었음**(ufw 비활성, iptables INPUT 정책 ACCEPT에 22번 관련 규칙 전무). 방어는 fail2ban(사후 차단)뿐 — 누적 실패 로그인 hyunsung 3,072건/realty99 4,519건.
+- **적용한 규칙**(양쪽 서버 동일 구조, `iptables`=IPv4 + `ip6tables`=IPv6 둘 다):
+  - 허용: 관리자 자택/사무실 공인 IP 2곳(`116.41.161.23`=ausqueen.synology.me, `58.225.109.232`=dasung000.synology.me) · **상대 서버 공인 IP**(hyunsung↔realty99 상호 SSH 자동화 유지용, `5.104.87.178`/`5.104.87.20`) · **tailscale0 인터페이스 경유**(이름이 아니라 인터페이스 매칭이라 tailnet 어느 피어에서 접속해도 통과)
+  - 그 외 전부 DROP. IPv6는 위 관리자 2개 IP가 IPv4 전용(A레코드만 있음)이라 **tailscale 경로만 허용 + DROP**.
+  - 순서 중요: 기존 tailscale 자체 `ts-input` 점프 규칙(1번) 뒤에 위 규칙들을 **append**(`-A INPUT`)해야 tailscale의 자체 필터링(스푸핑 방지용 DROP 등)과 안 꼬임.
+- `iptables-persistent` 설치 + `netfilter-persistent save`로 **재부팅해도 유지**되도록 저장(`/etc/iptables/rules.v4`·`rules.v6`).
+- **⚠️ 겪은 함정 1 — 서버 간 SSH가 tailscale이 아니라 공인 IP로 나가고 있었음**: hyunsung→realty99 자동화가 `ssh ausqueen@5.104.87.20`(공인 IP 직접)를 쓰고 있었는데, DROP 규칙 적용 직후 이 경로가 즉시 막혀 타임아웃 발생. tailscale IP(`100.65.176.46`)로 우회 접속해 복구 후, **상대 서버 공인 IP를 화이트리스트에 추가**해 원래 방식도 계속 되게 조치.
+- **⚠️ 겪은 함정 2(=운영상 인지 필요) — 화이트리스트는 DDNS 이름이 아니라 그 순간 resolve된 고정 IP값**: `ausqueen.synology.me`/`dasung000.synology.me`가 나중에 실제로 다른 IP로 바뀌면(회선 재계약 등), 이 iptables 규칙은 **자동으로 안 따라감** — 옛 IP는 계속 열려있고 새 IP는 막힘. 관리자 PC(daonpc)는 이미 tailnet 멤버라 **평소 SSH 접속은 tailscale IP를 주력으로 쓰고, 공인 IP 화이트리스트 경로는 백업으로만 두는 걸 권장**함(사용자에게 안내 완료). DDNS IP가 바뀌면 이 iptables 규칙(`-s <IP>`)을 수동으로 갱신해야 함 — 자동 동기화 스크립트는 미구축.
+- fail2ban은 그대로 유지(화이트리스트 IP発 비밀번호 대입 등에 대한 이중 방어, sshd `PasswordAuthentication`은 여전히 `yes`라 완전 무의미하지 않음).
+- **되돌리기**(각 서버에서 실행): `sudo iptables -F INPUT && sudo ip6tables -F INPUT && sudo netfilter-persistent save` (tailscale의 `ts-input` 점프 규칙은 tailscaled가 재시작 시 자동 재삽입하므로 별도 복구 불필요).
+- **사용자 판단**: 구글 계정(`ausqueen@gmail.com`, tailnet 로그인 ID)에 2FA가 걸려있어 "현재 수준으로 충분히 안전"하다고 판단 → tailscale ACL 세분화·Tailscale SSH 전환 등 추가 강화는 보류.
+
+### ✅ fail2ban이 tailscale 경유 접속을 밴하지 않도록 화이트리스트 추가(같은 날 후속)
+- iptables는 tailscale0 인터페이스를 통째로 허용하지만, **fail2ban은 별도 로직**(sshd 로그의 실패 횟수만 보고 밴)이라 tailscale IP(`100.x.x.x`)로 접속해도 비밀번호를 여러 번 틀리면 그대로 밴될 수 있는 상태였음(`/etc/fail2ban/jail.local`의 `ignoreip`에 tailscale 대역 누락).
+- 조치: `ignoreip`에 **tailscale CGNAT 전체 대역 `100.64.0.0/10`** 추가(백업 `jail.local.bak.20260805`) → `fail2ban-client reload sshd`로 무중단 반영. `fail2ban-client get sshd ignoreip`로 반영 확인.
+- 개별 피어 IP 나열 대신 **대역 전체를 허용**해서 향후 tailnet에 새 기기(daonpc·galaxy-z-fold7 등)가 추가돼도 별도 수정 불필요.
+
+## 2026-08-09 작업 이력 — hsrealty 구축 지원 서비스 신설 + 노출 확대(플레이스·머천트·블로그)
+
+### ✅ 구축 지원(방문 설치) 서비스 신설
+가격·범위는 사용자 결정: **경기 시흥·안산 1일 방문 설치 165,000원(VAT 포함), 그 외 지역 협의**.
+- **상품** `NAS 방문 설치 지원 (1일)` id=**286**, SKU `SETUP-VISIT-1D`, **virtual**(배송 없음), 신규 카테고리 `구축 지원`(term **41**, slug `setup-service`).
+- **랜딩** `/setup-service/`(page **287**, 전체폭) — 지원 범위 4단계(자가설치/원격지원/공식카페/방문설치)·포함·불포함·진행절차·FAQ. **주 메뉴(id38) position 4** 삽입.
+- **결제 실동작 검증**: 장바구니 담기 → 결제 진입까지 확인. virtual 이라 **배송비·배송지 미노출**, 결제수단 4종(카드·가상계좌에스크로·계좌이체에스크로·무통장) 정상. 165,000원이라 `hs_is_inquiry_product`(500만 초과 문의전환) 대상 아님.
+- 스크립트(멱등): `data/wp/hsrealty-import/create_setup_service.php` + `setup_service_page.html`.
+- **포함 범위 단서 명시**(사용자 요청): 원격 접속 설정은 **사내 네트워크 및 방화벽 담당자 협조 필수**, 협조 불가 시 해당 항목 제외하고 진행하되 **금액은 변동 없음**. NAS 기본 보안 설정은 **DSM 자체 보안**이며 사내 네트워크 장비 보안은 불포함임을 명시.
+
+### ✅ "무상 방문 설치" 오인 문구 정정
+홈 히어로·회사소개·도입가이드·SEO 메타가 **설치를 무료 제공하는 것처럼** 읽혔음 → **자가 설치 기본 / 원격 지원 무료 / 방문 설치 유료** 원칙으로 통일(백업 `_theme_bak/functions.php.bak.20260809setup`, `_copyfix_backup_20260809.json`).
+- 히어로 본문·지표(`1:1 무료 원격지원`)·신뢰 배지(`무료 원격 설정 지원` + `방문 설치 서비스(유료)`), 회사소개(page 180), 도입가이드(page 209), `hs_seo` 기본 설명.
+
+### ✅ SK네트웍스 시놀로지 공식 네이버 카페 안내 (https://cafe.naver.com/synologyskns)
+- 자식테마 `functions.php`에 **상품 상세 지원·A/S 안내 박스**(`woocommerce_single_product_summary` priority 45). `구축 지원` 카테고리 상품에는 미출력. 상수 `HS_SKNS_CAFE_URL`.
+- `/setup-service/` 지원범위 4번째 카드 + 문의 CTA + **푸터 위젯**(`widget_custom_html[3]`)에 링크 추가.
+
+### ✅ 교환·환불 정책 개정 — "개봉 시 환불 불가"의 법적 검토와 대안
+사용자 요청(HDD는 개봉 시 중고 취급)에 대해 **현행법 검토 후 진행**.
+- **결론**: 「전자상거래법」 제17조 제2항 제1호 단서가 **"내용을 확인하기 위한 포장 훼손은 제외"**라고 명시 → **개봉만으로 청약철회를 막는 조항은 제35조에 의해 무효**(공정위 시정조치·과태료 리스크).
+- **대안 채택**: 기준을 개봉이 아니라 **제2호(사용으로 인한 가치의 현저한 감소)** = **"NAS·PC에 장착하여 전원을 인가한 경우"**로 전환. HDD 는 **SMART(전원 인가 시간·켜짐 횟수)로 객관 입증 가능**하고, 제17조 제5항상 입증책임이 판매자에게 있어 이 품목은 방어 가능.
+- **제17조 제6항 필수 요건 충족**: 제한 사유는 **사전에 명확히 표시**하지 않으면 무효 → 정책 페이지뿐 아니라 **HDD·SSD·메모리카드 상품의 구매 버튼 바로 위**에 고지 박스 출력(`functions.php`, priority 29, 상수 `HS_STORAGE_CATS='hdd,ssd,memory-card'` — 카테고리 기준 자동 판별이라 신규 상품도 코드 수정 없이 적용).
+- 정책 페이지(page 9) 수정: ~~"미사용·미개봉 상태"~~ → **"사용하지 않은 상태" + 개봉만으로는 제한되지 않음 명시**, 제한사유 목록에서 **'개봉' 단독 항목 제거**, 라이선스 키 확인·등록은 제4호로 적법 명시, **하자·오배송은 A/S가 아닌 교환·환불**임을 추가(제17조 제3항은 배제 불가). 백업 `_theme_bak/_page9_backup_20260809.html`.
+- ⏭️ 사용자 후속 권고: 출고 시 **HDD 일련번호+SMART 초기값 기록**(분쟁 시 입증), 공정위 전자거래 상담(1670-0007) 1회 확인.
+
+### ✅ 제안서 PDF(nas-proposal.pdf) 도입사례 구성 변경 — 실측 반영
+금강다온부동산 구성 변경(메인 DS224+→**DS725+**, 원격지 DS220J→**DS224+ 4TB+4TB SHR**) 및 **ABB 실측 대수** 반영. 11페이지만 수정, 나머지 14p 텍스트 무변경 대조 확인.
+- **PC 대수는 DS725+에 SSH 접속해 실측**: `/volume2/@ActiveBackup/config.db`(device_table)+`activity.db`(device_result_table) 조회 → 등록 13대 중 **매일 백업되는 Windows PC 7대**(최근 7일 7/7 성공) + **리눅스 서버 2대**(realty99·hyunsung). 나머지 4대는 중단 상태(마지막 성공 7/5·6/14·이력없음)라 제외. 다이어그램 박스를 `직원 PC 7대`(Windows) / `서버 2대`(Ubuntu Linux)로 교체.
+- ⚠️ **함정 1 — Calibri-Bold 서브셋에 숫자 '7' 글리프가 없음**: 문서 전체 폰트를 훑어도 '7' 보유 Calibri-Bold 없음 → `DS725+`를 쓸 수 없어 **Calibri 메트릭 호환 폰트 Carlito-Bold**로 그 span 만 대체(폭 오차 0.0pt). 일회용 `python:3.12-slim` 컨테이너에 `fonts-crosextra-carlito`+`pymupdf` 설치해 작업(운영 컨테이너 미오염).
+- ⚠️ **함정 2 — 리댁션이 폰트 등록을 초기화**: `page.insert_font()`는 반드시 `apply_redactions()` **이후**에 호출해야 함.
+- ⚠️ **함정 3 — 한글 자간**: 원본이 폰트 기본폭보다 넓게 조판돼 있어, 새 텍스트를 그대로 넣으면 뒤 글자와 간격이 벌어짐 → 원본 span 폭에 맞춰 **글자 균등 분배**(align='S')로 재현. 한글 서브셋엔 **공백 글리프가 없어** 공백 포함 span 은 우측 정렬로 위치 계산.
+- **용량**: 폰트 임베드로 727KB→1.74MB 로 늘어난 것을 `subset_fonts()`로 **847KB**까지 축소. 원본 백업 `_theme_bak/nas-proposal.bak.20260809.pdf`.
+
+### ✅ 노출 확대 — 현황 진단(실측)
+- **GA4**: 하루 방문자 2~10명, 유입 대부분 direct, **검색 유입 1세션**. 페이지뷰≈방문자수(홈만 보고 이탈).
+- **GSC 서비스계정 연결**(사용자가 `ga4-reaport@ga4-report-503309.iam.gserviceaccount.com` 추가) 후 실측: 3개월 **57페이지 노출 / 426회 / 6클릭(CTR 1.4%)**. 노출 검색어가 **전부 영문 모델번호**(hat3320-20t, e10g30-t2 등)이고 **평균 순위 3~10위(1페이지)**. 기기별 **데스크톱 242 vs 모바일 27**.
+- **해석**: 색인·순위 문제가 아니라 ①파이가 작고 ②클릭을 못 먹는 것. 한글 키워드 노출은 0.
+- **네이버 데이터랩 실측**(1년): `시놀로지` 35~58 / `나스 설치·구축` 1.1~3.4 / `나스 추천` 0.7~6.5 / **`사무실 나스`·`기업용 나스` 0.03~0.06(사실상 검색 없음)**. → **"사무실 NAS" 키워드 전략은 폐기**, `나스 설치/구축`으로 전환. `나스 설치 대행` 네이버 블로그 상위는 전부 무관 문서 = **경쟁 콘텐츠 공백**.
+- **사용자 전략 확정**: 네이버쇼핑·쿠팡은 가격경쟁이라 승산 없음 → **자사몰 홍보로 집중**(자사몰에만 방문설치·원격지원·구축사례를 표현할 수 있음). 스마트스토어 30종은 **1번 유지**(관리 부담 낮음, 정리하지 않음).
+
+### ✅ 1단계 — 네이버 스마트플레이스 + 지역 랜딩
+- **플레이스 등록 신청 완료(사용자, 심사 중)**. 대표자(김미화)와 계정 명의가 달라도 등록 가능 — 네이버는 **ARS 또는 서류(OCR) 인증**으로 주인 권한을 주고, **직원에게 위임하는 기능도 공식 지원**(고객센터 20470/20521). 사진은 **필수 항목 아님**(반려 사유 아님)이나 순위·전환에 영향.
+- **지역 랜딩 신설** `/ansan-siheung-nas/`(page **303**) — 방문 가능 지역을 동 단위까지 명시, 금강다온 지역 사례, 사업장 정보, 지역 FAQ. 푸터·`/setup-service/` 배지에서 내부 링크.
+- **LocalBusiness JSON-LD** 추가(`functions.php`, wp_head priority 3) — 주소·좌표(37.3164, 126.8309)·영업시간·`areaServed`(안산·시흥·광명·부천·안양)·`makesOffer`(방문 설치 165,000원). **홈·지역·구축지원·회사소개 4곳만** 출력(중복 방지).
+
+### ✅ 2단계 — 구글 머천트 센터 상품 피드
+- **mu-plugin** `data/wp/wp-content/mu-plugins/hs-product-feed.php` — 피드 URL **`https://hsrealty.co.kr/google-merchant.xml`**(rewrite) / `?hs_feed=google`(대체). **81종**(공개 82종 중 서비스 상품 제외), 6시간 캐시 + 상품 수정 시 자동 무효화, 응답 0.15초.
+  - 자동 제외: 비공개·카탈로그 숨김(단종 포함), `구축 지원` 카테고리, **구매 불가**(500만 초과 문의전환 = 정책 위반 방지), 대표이미지 없는 상품.
+  - ⚠️ **`identifier_exists: no` 를 넣으면 안 됨** — 그 값은 '식별자가 하나도 없다'는 선언이라 `brand`+`mpn`을 함께 보내면 **모순으로 반려**됨. GTIN 확보 전까지는 brand+mpn 만 전송.
+  - ⚠️ 설명은 짧은설명/상세설명 중 **긴 쪽** 사용 — 상품 절반이 짧은설명 한 줄이라 그대로 쓰면 피드 품질이 전부 그 수준으로 떨어짐(중앙값 266자 확보).
+  - **GTIN 대응**: `HS_FEED_GTIN_MAP`(`wp-content/hs-feed-gtin.json`, SKU=>GTIN)만 채우면 `g:gtin` 자동 출력. **코드 수정 불필요.**
+- **구글 수집 확인**: `google-xrawler`가 13:36 KST 에 200 응답 수신(로그상 10,614B 는 **gzip 압축 크기**, 원본 132,011B — 실측 대조 완료). 직후 **Googlebot-Image 68건** 크롤 = 머천트가 상품을 실제로 처리 중이라는 신호.
+- **EAN(GTIN) 확보**: 시놀로지 공식 사이트·SK 단가표(260601/260803)·네이버 일괄등록 양식·스마트스토어 등록본·공급사 CDN 상세 HTML·**상세 이미지 OCR**까지 전수 확인했으나 **전부 없음** → SK네트웍스 담당자(max239@sk.com)에게 **요청 메일 발송**(참조 ceo@realty99.co.kr, 발신 hs@hsrealty.co.kr, wp_mail 경유).
+
+### ✅ 검색 결과 클릭률(CTR) 개선
+- 상품 meta description 을 **가격·무료배송·세금계산서·안산/시흥 방문설치·전화번호**가 앞에 오도록 자동 생성(`hs_seo_desc_for()`). 예: `정품 1,313,000원(VAT 포함) · 전국 무료배송 · 세금계산서 발행. … 안산·시흥 NAS 방문 설치 지원 · 031-520-5552`(101자).
+- 상품 페이지 **제목 단축** — 사이트명이 길어 모델명이 잘리던 것을 `– 현성리얼티`로(`document_title_parts`, 상품에만 적용). 백업 `_theme_bak/functions.php.bak.20260809meta`.
+
+### ✅ 3단계 — hsrealty 자체 블로그 개설 + 콘텐츠 11편
+- **블로그 신설**: `/blog/`(page **305** `NAS 기술 블로그`, `page_for_posts` 지정), 카테고리 `NAS 가이드`(term **42**, 기본 카테고리), 주 메뉴 `블로그`(position 5). 글 공용 CSS 는 자식테마 `style.css` 로 이동(ver **1.2.0**, `.hs-post`) — 글마다 `<style>` 중복 방지.
+- **blog.wonrealty.kr → hsrealty 글 3편 이전(복사 아님)**: 테일스케일 통합망 가이드·시놀로지 NAS 3년 실사용기·부동산 사무실 NAS 도입기. **동일 slug 유지 + 301 리다이렉트**(blogwr mu-plugin `blogwr-moved-redirects.php`), 이미지는 hsrealty 미디어로 복제 후 본문 URL 교체, 원본은 휴지통(복구 가능).
+  - 판단 근거: 이전 전 GSC 확인 결과 3편 모두 **노출 상위 15위 밖(3회 이하)** = 잃을 SEO 자산이 거의 없어 지금이 최적 시점.
+  - 리드 마그넷 CTA 의 `utm_source=blog_wonrealty` → **`hsrealty_blog`로 정정**(같은 도메인 안에서 발생한 신청이 타 사이트發로 집계되는 것 방지).
+- **신규 1편 발행**: `/nas-install-diy-or-outsource/` 「사무실 NAS 설치, 직접 할까 맡길까 — 판단 기준 5가지」(3,762자).
+- **7편 예약 발행 등록** — 매일 **09:00 KST** 1편씩(8/10~8/16): 설치비용·5인 견적·속도 문제·이전 방법·외부접속·헤놀로지 비교·Active Backup. 스크립트 `hsrealty-import/schedule_posts.php` + `hsrealty-import/posts/p2~p8.html`.
+- ⚠️ **WP 예약 발행은 방문이 있어야 실행됨** — 하루 방문자 2~10명이라 정시 발행 불가 → **호스트 크론 등록**: `*/15 * * * * curl -sS -o /dev/null -m 30 "https://hsrealty.co.kr/wp-cron.php?doing_wp_cron"` (ausqueen crontab). 예약 발행뿐 아니라 **WooCommerce 주문 처리·메일 발송 예약 작업도 함께 정상화**됨.
+
+### ⚠️ 이번에 겪은 함정 (재발 방지)
+- **CSS 이스케이프 금지** — 본문에 `content:"\2713"` 같은 CSS 이스케이프를 쓰면 `wp_update_post()`의 `wp_unslash()`가 백슬래시를 제거해 **숫자 "2713"이 그대로 출력**됨. 반드시 실제 문자(`✓`, `–`)를 쓸 것.
+- **클래스명 충돌** — 자식테마가 홈 히어로용으로 `.hs-hero`를 이미 쓰고 있어(2열 grid), 페이지 본문에서 같은 이름을 쓰면 레이아웃이 깨짐 → `.hs-vhero`로 개명. 본문용 클래스는 테마 CSS와 겹치는지 먼저 확인할 것.
+- **어두운 섹션의 색 상속** — `/nas-guide/`의 `.bg-nv{color:#dbe4ee}`가 그 안의 **흰색 카드까지 상속**돼 체크리스트가 흰 바탕에 연회색으로 보이던 것 수정(`.hs-guide .checks li`, `.bg-nv .card`에 `color:var(--ink)` 지정).
+
+### ⏳ 대기·후속
+- 네이버 플레이스 **심사 결과** / 구글 머천트 **첫 처리 결과**(GTIN 누락 경고 예상) / SK **EAN 회신**.
+- 8/16 예약분 소진 후 다음 콘텐츠 주제 선정 필요(자동 생성 파이프라인은 기술 콘텐츠 정확도 문제로 보류 권고).
+- 상품 상세설명 **44종이 300자 미만** — 색인·피드 품질 모두에 영향, 보강 대상.
+
 ## 미완료 항목
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
 - [x] ~~certbot 자동 갱신 설정~~ — 완료 (systemd timer)
 - [ ] VWorld API 도메인 인증 (wonrealty.kr 등록 필요 — map.vworld.kr 개발자 콘솔)
-- [~] (권장) SSH 하드닝 — **fail2ban 완료(2026-07-08)**, `PasswordAuthentication no`는 **보류**(사용자 PC 공개키 등록·검증 후 진행. 현재 ausqueen 등록키는 realty99→hyunsung 1개뿐이라 지금 끄면 락아웃 위험)
+- [~] (권장) SSH 하드닝 — **fail2ban 완료(2026-07-08)**, **22번 포트 공인 IP 화이트리스트 전환 완료(2026-08-05, 아래 작업이력 참조)** — 이제 전체 인터넷 노출은 아니지만, `PasswordAuthentication no`는 여전히 **보류**(사용자 PC 공개키 등록·검증 후 진행. 현재 ausqueen 등록키는 realty99→hyunsung 1개뿐이라 지금 끄면 락아웃 위험)
   - **fail2ban 1.0.2** 설치·enable. jail=sshd(mode aggressive, maxretry 4, findtime 10m, bantime 1h→재범 점증 최대 1w), backend=systemd, banaction=nftables(전용 `table inet f2b-table`, Docker 규칙과 분리).
     - 화이트리스트(`ignoreip`, `/etc/fail2ban/jail.local`): `127.0.0.1/8 ::1 5.104.87.20`(realty99) `5.104.87.178`(자기) `172.16.0.0/12`(docker). 확인: `sudo fail2ban-client status sshd`. 설치 직후 공격 IP 자동밴 검증됨(무차별 로그인 시도 하루 ~1.2만건 관측).
     - **WordPress 로그인 잼 `hsrealty-wp-auth` 추가(2026-07-08)**: WooCommerce/WP 로그인 브루트포스 방어. 자식테마 `functions.php`가 로그인 실패를 `wp-content/hs-auth-fail.log`에 실제 클라이언트IP(X-Forwarded-For)로 기록 → fail2ban(filter `hsrealty-wp-auth`, backend polling)이 5회/10분 초과 시 밴. **핵심**: hsrealty는 Docker 공개포트(443)라 DNAT→FORWARD 경로로 INPUT hook 밴이 무효 → `banaction=iptables-multiport chain=DOCKER-USER`로 컨테이너 전달 지점(DOCKER-USER 체인)에 밴 삽입(엔드투엔드 검증됨). 필터 `/etc/fail2ban/filter.d/hsrealty-wp-auth.conf`.
