@@ -245,14 +245,40 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
   - **롤백이 필요해지면**: NAS DSM에서 NFS 권한 규칙에 공인 IP(5.104.87.178·5.104.87.20) 재추가 + 양쪽 fstab을 `/etc/fstab.bak.20260802`로 복원 + Kuma 모니터 hostname을 `ausqueen.synology.me`로 되돌리기.
 - **롤백**: `/etc/fstab.bak.20260802` 복원 + `mnt-nas.mount.d/tailscale.conf` 삭제 + `mount -a` (+ ABB는 `abb-cli -l`(admin인증) 후 `-c -a ausqueen.synology.me ...`로 재연결).
 
-## GitHub
-- **Repo**: ausqueen/onbid-auction-finder (private)
-- **인증 방식**: ~~PAT~~ → **SSH 키**(remote `git@github-onbid:ausqueen/onbid-auction-finder.git`, 별칭은 `~/.ssh/config`의 `Host github-onbid` + `IdentitiesOnly yes`).
-  - ⚠️ **git 명령은 `sudo` 없이 `ausqueen` 계정으로 실행할 것** — sudo는 root의 SSH 키를 쓰므로 `origin` 접근이 실패함(2026-07-25 확인). 작업본 파일도 ausqueen 소유라 sudo 불필요.
-- **최신 커밋**(2026-07-25 push): 8c8d557 (chore(infra): 웹 취약점 5건 수정 + Portainer 제거 + 이미지 갱신·의존성 고정)
-  - cbe51cf (feat(frontend): realty99 상담 유도 배너 + 애드센스 ads.txt)
-  - f83c895 (docs: hsrealty KCP 카드결제 라이브 세팅 + 심사 대비 정비)
-  - ※ 이 줄은 갱신 시점 기준이라 항상 1커밋 정도 뒤처짐. 정확한 값은 `git log -1`.
+## GitHub — 저장소 3개 (2026-08-09 hsrealty·blog-wonrealty 추가)
+이 서버의 서비스 3개가 각각 별도 private 저장소를 쓴다. **저장소마다 전용 배포키**를 두어,
+키 하나가 유출돼도 그 저장소 하나만 영향을 받게 했다.
+
+| 저장소 | 경로 | SSH 별칭 / 배포키 |
+|--------|------|-------------------|
+| `ausqueen/onbid-auction-finder` | `/opt/onbid-auction-finder` | `github-onbid` / `~/.ssh/onbid_deploy_key` |
+| `ausqueen/hsrealty` | `/opt/hsrealty` | `github-hsrealty` / `~/.ssh/hsrealty_deploy_key` |
+| `ausqueen/blog-wonrealty` | `/opt/blog-wonrealty` | `github-blogwr` / `~/.ssh/blogwr_deploy_key` |
+
+- 별칭 정의는 `~/.ssh/config`(각 `Host` 블록 + `IdentitiesOnly yes`). remote 는 `git@<별칭>:ausqueen/<repo>.git` 형식.
+- ⚠️ **배포키는 저장소 단위 권한**이다. `github-onbid` 키로 hsrealty 에 push 하면 `Repository not found` 가 난다
+  (계정 키가 아니라 onbid 전용 키. `ssh -T git@github-onbid` 하면 `Hi ausqueen/onbid-auction-finder!` 로 확인됨).
+  **새 저장소를 추가할 때는 키도 새로 만들어 `gh repo deploy-key add --allow-write` 로 등록**할 것.
+- ⚠️ **git 명령은 `sudo` 없이 `ausqueen` 계정으로 실행할 것** — sudo 는 root 의 SSH 키를 쓰므로 origin 접근이 실패함(2026-07-25 확인).
+  - `/opt/blog-wonrealty` 는 원래 root 소유라 **최상위 디렉터리만 ausqueen 으로 chown** 했다(하위 소유권은 유지). `/opt/hsrealty` 는 원래 ausqueen 소유.
+- **gh CLI 2.97.0 설치됨**(2026-08-09, 공식 apt 저장소). 저장소 생성·배포키 등록용.
+  인증은 디바이스 플로우로 완료(scopes `repo`/`read:org`/`gist`), 토큰은 `~/.config/gh/hosts.yml` 에 **평문 저장**(권한 600).
+  일상 push/pull 은 배포키로 동작하므로 **`gh auth logout` 해도 무방**하다.
+
+### 추적 범위 — "직접 작성한 것"만
+워드프레스 코어·서드파티 플러그인/테마·업로드·DB 는 컨테이너 이미지와 백업(ABB·db_predump)이 관리하므로 제외한다.
+
+- **hsrealty**(58 파일 / 808K): 자식테마 `hsrealty`(functions.php·style.css·WooCommerce 오버라이드·assets), mu-plugins(`hs-lead-magnet`·`hs-product-feed`), `hsrealty-import/` 스크립트·콘텐츠 원본, docker-compose.yml, `.env.example`.
+- **blog-wonrealty**(608 파일 / 3.9M): `autopost/`(autopost.py·pool.json), mu-plugins 6종, `naver_archive/`(스크립트·원문 555건·진행상태 JSON·운영 문서), **`deploy/`(systemd 유닛 사본)**, docker-compose.yml, env 예시 2종.
+  - `deploy/` 를 둔 이유: systemd 유닛은 `/etc/systemd/system/` 에 있어 저장소 밖이라, 서버 재구축 시 **자동발행 스케줄(08·20시)을 기억으로 복원**해야 했음. 사본을 함께 보관한다.
+- ⛔ **제외**: `.env`(WP 관리자·DB 비번), `autopost/autopost.env`(Gemini API 키·WP 앱 비번·SMTP 비번·IndexNow 키), 인증 실패 로그(`hs-auth-fail.log` — 관리자 계정명·신뢰 IP 노출), `naver_archive/images`(248M), 각종 `*_bak`.
+  값 없는 **`.env.example`** 을 대신 추적해 어떤 키가 필요한지는 남겼다.
+- ⚠️ **`.gitignore` 함정**: `data/` 처럼 **디렉터리를 통째로 제외하면 git 이 그 안으로 내려가지 않아** `!data/.../mu-plugins` 재포함이 동작하지 않는다.
+  blogwr 에서 실제로 mu-plugin 6개가 통째로 빠졌었다. **하위 경로를 개별 제외**할 것.
+
+### 커밋 기록
+- 최신은 `git log -1` 로 확인할 것(아래 줄은 항상 뒤처짐).
+- 2026-08-09: `9c7d138`(onbid, robots.txt 추적) / `9ad3f35`(hsrealty 최초) / `7694440`(blog-wonrealty 최초).
 
 ## 연결된 서버
 | 서버 | IP | 역할 | 비고 |
