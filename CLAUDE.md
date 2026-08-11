@@ -625,6 +625,15 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - 📌 **자동충전 주의**: 실제 상한은 충전액이 아니라 **캠페인 일 예산**. 반드시 일 5,000원 설정할 것. 첫 충전은 10만원 이하 권장.
 - 📌 검증 도구: 전환 추적 관리 화면의 **"네이버 전환 스크립트 어시스턴트"**로 설치 상태 자가 점검 가능.
 
+### ✅ realty99(금강다온) 광고 점검 — 전화 클릭 추적 + 파워링크 키워드 전면 재구성
+※ 상세는 메모리 `project_realty99_powerlink.md`. 여기엔 서버 작업분만 기록.
+- **전화 클릭 추적 배포**(daon 커밋 `74f0e66`, **push 미완**): `frontend/src/components/analytics/PhoneClickTracker.tsx`(client)를 `app/layout.tsx`에 상시 마운트. 부동산의 실제 전환은 전화인데 `kakao_click`·`form_start`는 잡히고 **전화만 빠져 있었음**. 전화번호가 Footer·about·privacy·플로팅버튼에 흩어져 있어 **document 캡처 단계에서 한 번만** 잡음(새 페이지 추가돼도 무수정). `/admin`은 제외(직원이 고객에게 거는 전화). 이벤트 `click_to_call {phone, page_path}` — 번호로 중개(031-404-7600)/경매(031-520-5552) 구분됨. **실시간 API로 1건 실측 검증 완료.**
+  - 배포: `docker compose build frontend && up -d frontend` 후 **`docker exec realty99_nginx nginx -s reload`**(컨테이너 재생성 시 nginx가 옛 IP를 봐서 502 — hyunsung과 동일 함정).
+  - ⚠️ 검증 시 HTML에서 청크 URL을 정규식으로 긁으면 **`chunks/app/` 하위 경로를 놓침**. 컨테이너 내 `/app/.next/static`에서 grep하는 편이 확실.
+- **realty99 광고 실태**: 30일 세션 1,637 중 **direct 89%**, 네이버 광고 유입(`ad.search.naver.com`) **월 1~2세션**, 구글 cpc 5~12. 광고비 70만원→10만원 축소했는데 **사이트 유입은 오히려 증가**(7월 767 → 8월 11일까지 877).
+  - ⚠️ **채널별 측정 지점을 섞으면 안 됨**: 네이버 **부동산 매물광고**(`fin.land.naver.com/realtor/hyunsung567`)와 **플레이스**는 사이트로 오지 않으므로 GA4에 안 잡히는 게 정상 — 각각 부동산 파트너센터·스마트플레이스 통계에서 봐야 함. GA4로 판단 가능한 건 **파워링크와 구글 Ads뿐**.
+  - **플레이스 광고 요일·시간·지역 확대**(사용자 진행): 일요일·야간을 빼두고 있었는데 GA4 실측상 **일요일 14.1%(평일과 동일)·21시 5.5%**로 오히려 활발. 지역도 서울 49.9%·시흥 8.5%·인천 7.5%라 시흥 인근 한정은 근거가 약함. 설정은 광고그룹 단위(`입찰가/노출설정` 탭=요일·시간, `정보관리`=지역).
+
 ## 미완료 항목
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
 - [x] ~~certbot 자동 갱신 설정~~ — 완료 (systemd timer)
