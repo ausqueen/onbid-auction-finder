@@ -6,7 +6,9 @@
 
 ## 서버 정보
 - **호스트명**: hyunsung (구 wonrealty, 2026-07-03 변경 — 도메인 wonrealty.kr과 무관)
-- **IP**: 5.104.87.178
+- **IP**: 5.104.87.178 (공인) / **tailnet `100.95.122.4`**
+- **짝 서버**: **realty99**(금강다온 realty99.co.kr + blog). 서버 착각 주의 — 작업 전 `hostname` 확인.
+  **realty99 접속은 평상시 `ssh realty99`(테일넷 매직DNS), 테일넷이 안 되면 `ssh realty99-public`(공인).** 아래 "서버 간 SSH" 참조.
 - **도메인**: wonrealty.kr, blog.wonrealty.kr, hsrealty.co.kr (HTTPS 운영 중). ~~portainer.wonrealty.kr~~ = **2026-07-25 Portainer 삭제로 404**(인증서 SAN·acme 검증용 80 블록만 유지)
 - **OS**: Ubuntu 24.04 LTS
 - **Timezone**: Asia/Seoul (KST)
@@ -24,6 +26,34 @@
 > ⚠️ **SSH 보안**: root 직접 SSH 로그인 **차단됨**(`PermitRootLogin no`, 2026-06-28).
 > 반드시 `ausqueen` 또는 `hyunsung567`로 접속 후 `sudo` 사용. 비밀번호 인증은 유지.
 > sshd 설정 백업: `/etc/ssh/sshd_config.bak.20260628`
+
+## 서버 간 SSH — 평상시 테일넷, 안 되면 공인 (2026-08-14)
+`~/.ssh/config`에 양쪽 다 등록돼 있다.
+
+| 용도 | 명령 | 접속 시간(실측 2026-08-14) |
+|---|---|---|
+| **평상시** | `ssh realty99` (테일넷 매직DNS) | **0.10~0.20초** (도쿄 내부 IPv6 직접연결, DERP 릴레이 아님) |
+| **테일넷 실패 시** | `ssh realty99-public` (5.104.87.20) | 0.43~0.50초 |
+
+- 테일넷을 먼저 쓰는 이유는 3배 빠르고, 공인 접속은 realty99 방화벽의 이 서버 IP 화이트리스트에 의존해 IP가 바뀌면 끊기기 때문.
+- **공인 경로는 금지가 아니라 대체 수단.** tailscaled가 죽거나 매직DNS가 안 풀리면 `-public`으로 붙어서 작업을 이어갈 것. 화이트리스트도 그래서 남겨둔 것이니 지우지 말 것.
+- 이 서버 22번 규칙: `-i tailscale0 ACCEPT` + 공인IP 3개(realty99 5.104.87.20·사무실 116.41.161.23·집 58.225.109.232) ACCEPT + 나머지 DROP.
+- 반대 방향(realty99→hyunsung)도 동일하게 `ssh hyunsung` / `ssh hyunsung-public`.
+
+## 메일 — 발송·수신 둘 다 가능 (2026-08-14 검증)
+**이 서버 계정 = 다음 `hyunsung567@daum.net`, 도메인 주소가 `hs@hsrealty.co.kr`.**
+**둘은 같은 사서함이다** — 어느 주소로 IMAP 로그인해도 동일(INBOX 135통·UIDNEXT 357 일치 확인).
+자격증명은 **`/opt/blog-wonrealty/autopost/autopost.env`의 `SMTP_USER`/`SMTP_PASS`** — **root 600이라 `sudo` 없이는 안 읽힌다**(찾을 때 헤매기 쉬움).
+
+| 용도 | 서버·포트 | 상태 |
+|---|---|---|
+| 발송(SMTP) | `smtp.daum.net:465` (SSL) | 운영 중 — blog-wonrealty 자동발행이 사용 |
+| **수신(IMAP)** | `imap.daum.net:993` (SSL) | **로그인 검증 완료** — 폴더 6개, INBOX 135통 |
+
+- **SMTP 비밀번호가 IMAP에도 그대로 통한다.** 별도 계정 발급·앱 비밀번호·다음메일 "IMAP 사용" 켜기 **전부 불필요**(스마트워크 계정이라 이미 열려 있음).
+- 읽기 구현은 표준 라이브러리 `imaplib`+`email`로 충분(설치 불필요). 폴링은 **5분 이상** 주기 권장(다음메일 연결 제한).
+- ⚠️ **다음메일은 `UIDVALIDITY`가 계정이 달라도 같은 값(3375101052)** — 사서함 구분 용도로 쓰면 안 된다. 구분은 계정+UID로.
+- 짝 서버 realty99도 동일 구조로 수신 가능 — 계정 `ausqueen@hanmail.net`(도메인 주소 `ceo@realty99.co.kr`, 같은 사서함), 자격증명은 그쪽 `/opt/daon/.env`의 `MAIL_*`.
 
 ## 주요 경로
 | 경로 | 설명 |
@@ -741,10 +771,153 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - 이로써 **hsrealty·금강다온 양쪽 파워링크가 같은 구조**(성격별 그룹 + 맞춤 소재 + 랜딩 분리)가 됨.
 - **⏳ 확인 일정(08-15~16경, "파워링크 실적 확인해줘")**: ①금강다온 — 매체 제한 후 노출이 정상 규모(콘텐츠 폭주 소멸)로 줄었는지, 70원 입찰에서도 검색 노출이 나오는지 ②hsrealty — 본(검색) vs 콘텐츠확산 캠페인 클릭 품질 비교(GA4 체류·이탈), 콘텐츠확산 일 2,000원 소진 속도 ③양쪽 클릭 발생 키워드 선별 → 입찰 인상은 2~3주 데이터 쌓인 뒤. 점검 스크립트: 스크래치패드 소실 시 NAS 보존본(`daon_check*.py`·`verify_setup.py`) 참고, 자격증명 `~/.secrets/naver_searchad{,_daon}.txt`.
 
+### ✅ GSC "판매자 목록 전역 식별자 미제공" 경고 대응 (2026-08-13, hsrealty 커밋 `56f7000`)
+GSC 메일 = 상품 페이지 Product JSON-LD에 gtin·브랜드 없음(비심각·노출 제외 아님). WooCommerce 코어는 sku만 출력하던 것 → 자식테마 `functions.php`에 `woocommerce_structured_data_product` 필터 추가: **brand(Synology) + mpn(SKU)** 보강(구글은 gtin·mpn 중 하나면 전역 식별자로 인정 → 경고 해소 예상). **gtin13은 머천트 피드와 동일한 `HS_FEED_GTIN_MAP`(`wp-content/hs-feed-gtin.json`)을 읽으므로 SK EAN 회신 시 그 파일만 채우면 피드·JSON-LD 양쪽 자동 반영.** 구축 지원(setup-service) 카테고리는 Synology 제품이 아니라 제외. 라이브 검증: DS1825neo+ = brand·mpn 출력, 서비스 상품 = 미출력. 백업 `_theme_bak/functions.php.bak.20260813schema`. 재크롤 후 GSC 판정 갱신까지 며칠~2주.
+
 ## Microsoft Clarity — 보류 (2026-08-13 사용자 결정)
 세션 녹화·히트맵 도구. 서버 부하 없음(클라이언트 스크립트)·무료·리눅스 무관까지 확인했으나, **현재 방문 규모(하루 수십 명)에선 효용이 낮아 나중에 설치하기로 함**. 재제안하지 말 것. 적기 = 하루 방문 수백 명대 또는 장바구니→결제 이탈 분석이 필요해질 때. 설치 시 주문완료 페이지 마스킹 설정 + 개인정보처리방침에 행태정보 수집 명시 필요(계정·프로젝트 생성은 사용자가 clarity.microsoft.com 에서).
 
+## 2026-08-14 작업 이력 — hsrealty 방문자 분석 + 유튜브 채널 검토
+
+### 📊 오늘(8/14) 방문자 실측 — 17시 기준
+GA4 조회는 realty99 `~/scripts/.ga4_service_account.json`(서비스계정) 재사용, 속성 **`properties/545181462`**(현성리얼티 / hsrealty.co.kr). 일회성 스크립트는 세션 스크래치패드.
+- **활성 28 · 세션 32 · 페이지뷰 44**(어제 8/13 전일 48/63/104, 8/12 30/35/58, 8/11 39/42/61). 어제 17시까지 누적 세션 ~54였으니 **어제의 60% 수준**이나 8/12와는 비슷 — 어제가 유독 높았던 것.
+- 신규 24 : 재방문 1. 데스크톱 24 : 모바일 8(75%, B2B 성격 유지). 지역 서울 14·대전 4, 시흥 1.
+- **유입은 구글 쇼핑광고가 사실상 전부**: google/cpc 11 + `(data not available)`/cross-network 11 ≈ **22세션(69%)**. 직접 3·구글 자연 2·네이버 자연 1·네이버 referral 1.
+- **네이버 파워링크 유입 0** — 실측 노출 1,046회(본 캠페인 417 + 콘텐츠확산 629)에 **클릭 0건**. 어제도 클릭 1건(171원)뿐. 입찰가 70원으로는 순위가 낮아 클릭이 안 나옴 → 8/15~16 판단 때 인상/중단 결정할 것.
+- 체류 상위 = `/setup-service/` 153초 · `/ansan-siheung-nas/` 138초 · DS124 136초 · 홈 134초. **광고로 온 상품 페이지는 짧게 보고 나가고, 구축지원·지역 랜딩은 들어오면 오래 읽음**(단 각 1세션).
+- ⚠️ **당일 데이터 해석 주의**: 오늘 참여율 9.4%·구글cpc 이탈률 100%로 찍히나 **당일은 `user_engagement` 집계 지연으로 항상 낮게 나옴**. 소스별 세션 합계(43)가 총계(32)보다 큰 것도 미귀속 `(not set)` 탓. **당일 수치로 품질 판단하지 말 것** — 익일 확정치로 볼 것.
+
+### ⚠️ 전환 0 — 원인은 "유입량 부족"으로 결론(사용자 판단)
+- 오늘 `purchase`·`add_to_cart`·`click_to_call`·`generate_lead` **전부 0**. **최근 7일 통틀어 전환 이벤트는 8/10 click_to_call 1건이 전부**(주문 0·담기 0).
+- 통계 검증: 최근 8일 총 **210세션**. 전환율 0.5% 가정 시 주문 0건일 확률 **약 35%**, 1% 가정해도 12% → **주문 0은 현 규모에서 정상 범위**. 사용자 판단("방문자가 너무 적은 게 원인")이 수치로도 지지됨 → **페이지 원인 조사는 하지 않기로 함**.
+- ~~⏳ 단 담기 0건은 주문 0보다 이른 신호(누적 400~500세션에서도 0이면 페이지 문제)~~ — **✅ 2026-08-21 해소. 페이지 문제 아니었음**: 최근 28일 세션 558 · **add_to_cart 11 · purchase 3** · click_to_call 1 · generate_lead 1. 전환율 3/558 ≈ **0.54%** 로 일반 이커머스 평균 범위 → 상품 페이지·결제 흐름 정상 작동 확인. **병목은 전환율이 아니라 유입량(하루 약 34세션)** 으로 확정.
+- ⚠️ **검색 채널은 이미 천장** — 구글 쇼핑 일 예산 10,000원 중 **실제 소진 3,555원**. 돈이 없어 노출을 못 사는 게 아니라 **살 노출 자체가 그것뿐**. 데이터랩 실측(`나스 설치/구축` 0.35, `사무실 나스` 0.006)과 일치. → 다음 단계는 "수요를 사오는 것"이 아니라 **수요를 만드는 채널**.
+
+### ⏳ 유튜브 채널 — 방향 승인, 착수 전 결정 대기
+사용자가 **힉스필드(Higgsfield) AI 생성영상**으로 만들고 싶다고 제안 → 검토 결과 **하이브리드로 권고**(풀 AI 반대).
+- **왜 유튜브인가**: ①검색 채널이 천장에 닿음(위 광고 예산 미소진) ②**유튜브는 도메인 나이를 안 따짐** — 자사 블로그가 신규 도메인이라 구조적으로 못 오르는 것(GSC 평균순위 9.6)이 유튜브엔 적용 안 됨.
+- **한계(냉정하게)**: 영상 조회→설명란 링크 CTR 1~3%(조회 1,000이면 사이트 방문 10~30명). **6~12개월짜리라 당장의 유입 문제는 못 품.** 진짜 제약은 제작 인력.
+- ⛔ **AI에 맡기면 안 되는 것**: **제품 외형**(AI는 DS925+를 정확히 못 그림 — 베이 수·LED·로고가 실물과 다름. 시청자가 모델번호로 검색해 들어오는 B2B라 즉시 들통, 정품 판매점 신뢰 훼손) · **DSM 화면**(화면녹화로) · **실제 설치 현장**(우리만 가진 자산).
+- ✅ **AI(힉스필드)가 맡을 것**: 추상 개념 시각화(3-2-1 백업·랜섬웨어·파일공유 흐름) · 인트로/아웃트로 · 감성 B-roll · 쇼츠 배경.
+- 📌 **가장 가치 높고 싼 콘텐츠 = DSM 화면녹화 + 원대표 육성 해설**(무료·정확·정책상 최안전). 힉스필드는 그 사이를 메우는 역할.
+- ⚠️ **유튜브 2026 정책**: 기존 '반복 콘텐츠'가 **'비진정성 콘텐츠(inauthentic content)'로 개편** — 대량생산 템플릿·재활용 클립·서사 없는 슬라이드쇼는 경고→90일 정지→YPP 영구제외 3진아웃, **판정이 영상 단위가 아니라 채널 단위**. 사실적 합성물은 스튜디오 **'변경되거나 합성된 콘텐츠' 토글 고지 필수**(미고지 자체가 위반. 단 대본·편집·썸네일 보조 AI는 고지 대상 아님). → **원대표 육성 나레이션이 들어가면 리스크 거의 해소**(정책이 "본인 육성·편집 판단·개인적 관점"을 실질적 독창성으로 명시). 수익창출이 목표가 아니어도 **같은 신호가 알고리즘 노출에 작용**하므로 중요.
+- 💰 **힉스필드 요금(2026-08 확인)**: Starter $15(200크레딧)/Plus $39(1,000)/Ultra $99(3,000~9,000). 생성 1회 기본모델 15~25크레딧, Sora2·Veo3.1 등 상위 40~70. 클립 1개가 5~10초. **풀 AI 5분 영상=편당 1,000~2,000크레딧 → 주1편이면 Ultra(월 약 14만원)도 빠듯**(현재 구글 광고 실소진 월 10만원보다 비쌈). **하이브리드로 AI 클립 10~15개로 줄이면 Plus(월 약 5.5만원)로 월 2편**.
+- **첫 편 구성안(합의)**: 「사무실에 NAS 놓으면 뭐가 달라지나 — 3-2-1 백업」 = 도입 30초 AI(데이터 손실) → 본론 3분 DSM 화면녹화+육성 → 사례 1분 금강다온 실구성(실물) → 마무리 `/setup-service/` 링크. AI 클립 5~8개(200~400크레딧). **완성본은 `/nas-guide/`·`/setup-service/`에 임베드해 사이트 자산으로 재사용** → 채널이 안 커도 본전은 건지는 구조.
+- ⛔ **착수 전 사용자 결정 필요(미정)**: ①**촬영·편집 주체** ②**주 몇 편을 3개월간 유지 가능한가**. 이 둘이 안 정해지면 시작하지 않는 편이 나음(중간에 멈춘 채널은 안 만든 것보다 나쁨). 정해지면 첫 편 **힉스필드 장면별 프롬프트 + 나레이션 대본**부터 작성.
+- 참고: 힉스필드 계정은 blog.wonrealty.kr 이미지 풀(soul_2, 30장) 만들 때 쓰던 것 그대로. 한국 시놀로지 유튜브 경쟁 채널 규모는 **미확인**(웹검색이 미국 기준이라 국내 채널 데이터 미확보) — 사용자가 유튜브에서 "시놀로지" 검색해 상위 채널 직접 확인하는 편이 정확.
+
+## 2026-08-16 작업 이력 — 전역 OOM 발생 + 양 서버 스왑·cgroup 상한 도입
+
+### 📉 사고: 17:01:51 커널 OOM 으로 hyunsung 일시 접속 불가
+- **원인**: `claude` CLI 프로세스 1개(PID 450951)가 **RSS 4,994MB(약 5.0GB)** 까지 부풀어, 총 7.8GB·**스왑 0** 인 서버에서 전역 OOM 발동 → 커널이 그 프로세스를 kill. OOM 당시 나머지는 apache2 20개 합계 1,602MB · MainThread 8개 1,165MB · mariadbd 203MB 로 전부 정상 규모였다.
+- **접속이 끊긴 이유**: 메모리 압박으로 **페이지 캐시가 2MB 까지 밀려남**(`active_file:2008kB`) → sshd·로그인 셸 바이너리까지 디스크에서 재차 읽어야 하는 상태. 근거 = `17:04:03 tailscaled: CreateEndpoint error ... :22: operation timed out` 2건, 5분 평균 부하 10.31, `systemd-journald: Under memory pressure, flushing caches`.
+- **발생 위치**: `session-c239.scope` = **집 PC `dasung000`(100.72.223.40, 58.225.109.232)** 에서 테일넷으로 붙은 **VS Code 원격 세션**. 이 cgroup 하나의 **피크가 6.5GB**. ⚠️ 접속원을 daonpc 로 오독하기 쉬움 — daonpc 는 당시 22시간째 오프라인이었다. **`tailscale status` 로 IP→호스트명을 반드시 대조할 것.**
+- **영향 없음**: 도커 8컨테이너·uvicorn·mariadb·apache 전부 무중단(재시작 흔적 0). 죽은 건 클로드 대화 창 하나뿐. 최근 7일 통틀어 OOM 은 이 1건.
+- **기여 요인**: ①스왑이 0 이라 완충이 전혀 없었음 ②VS Code 원격 세션이 무겁다 — 확장 호스트 2개(598+531MB)·Pylance 2개(262+223MB)·Copilot·Codex 로 **claude 를 빼고도 약 2GB** ③그 위에 클로드 대화 창이 여러 개.
+- **진단 명령**: `sudo dmesg -T | grep -i 'out of memory'` / 당시 프로세스별 실 RSS 는 `dmesg` 덤프 표에서 **뒤에서 8번째 열**(`$(NF-7)`)이 rss — 앞쪽 열을 쓰면 total_vm 을 잡아 mariadbd 가 8TB 로 보이는 오독이 난다.
+
+### 🐛 5GB 는 클로드 CLI 의 비정상 동작(버그로 판단)
+- **정상 사용량은 250~385MB**. 같은 시각 살아남은 클로드가 확장 로그에 스스로 남긴 값 = `rss=263MB heap=102MB ext=45MB`. 죽은 프로세스의 4,994MB 는 **약 19배**로, 정상 운영 범위가 아니다.
+- **힙 상한이 없다** — `NODE_OPTIONS`·`--max-old-space-size` 설정이 어디에도 없음(바이너리는 Bun+V8 기반). 제동장치가 없어 커널이 죽일 때까지 계속 자란다.
+- **살아남은 클로드는 가해자가 아니라 피해자**였다: `[event-loop-stall] blocked for 149423ms ... majflt=36680` — 메이저 페이지폴트 36,680회로 디스크를 긁고 있었고 **자기 힙은 102MB 에서 변동 없음**. 이 stall 이 사고를 클로드 탓으로 오인하게 만드는 함정.
+- ⚠️ **기각된 가설**: 압축 JS 에 돌린 `grep -oE '.{0,80}/api/eventos.{0,80}' or_*.js` 를 처음 원인으로 의심했으나 **재현 결과 출력 346바이트·즉시 완료**로 무관. 120초 타임아웃은 그 뒤의 `curl -m 25` 3회 때문이었다.
+- **원인 규명 실패(한계)**: 폭주한 PID 450951 은 **세션 로그를 전혀 남기지 않았다** — `~/.claude/session-env/` 에 17:03 생성된 고아 세션 3개(4d710c01·1d88c33e·aa5eecb6)만 있고 대응 `.jsonl` 이 없으며, 확장 로그에도 종료 기록이 없다. 어느 대화창이었는지·무엇이 방아쇠였는지는 서버 쪽 자료로 특정 불가. 재현되지 않은 단발 사건이라 누수인지 특정 입력(대용량 파일·툴 출력) 버퍼링인지 단정할 수 없다.
+- **재발 시 할 일**: 클로드에서 `/bug` 로 시각과 함께 보고. 당시 버전 = 확장 **2.1.233** / CLI **2.1.231**. 서버 쪽은 이미 cgroup 상한으로 **서버 전체 마비 → 대화창 하나 종료**로 격하돼 있으므로 추가 조치는 불필요.
+
+### ✅ 대책(hyunsung·realty99 **양 서버 공통 적용**)
+**① 스왑 4GB** — 양쪽 다 스왑이 0 이라 완충이 전혀 없었음.
+```
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+```
+`/etc/fstab` 에 `/swapfile none swap sw 0 0` 등록(백업 **양쪽 `/etc/fstab.bak.20260816`**), `/etc/sysctl.d/99-swappiness.conf` 로 **`vm.swappiness=10`**(평상시엔 안 쓰고 비상 완충으로만 동작).
+
+**② cgroup 메모리 상한(서비스 보호가 목적)** — 사고 당시 실측이 **system.slice 1.47GB(서비스 전체) vs user.slice 3.85GB** 로, 사용자 세션 하나가 서버 전체를 죽일 수 있는 비대칭이었다.
+
+| 서버 | `user-1000.slice.d/memory-limit.conf` | `system.slice.d/memory-protect.conf` |
+|---|---|---|
+| **hyunsung** | `MemoryHigh=5G` `MemoryMax=6G` | `MemoryMin=1500M` |
+| **realty99** | `MemoryHigh=4500M` `MemoryMax=5500M` | `MemoryMin=2G` |
+
+realty99 는 서비스가 더 무거워(PostgreSQL·Redis·Next.js·워드프레스 2벌, system.slice 1.76GB) 서비스 보장을 2G 로 올리고 사용자 상한을 그만큼 낮췄다.
+- `daemon-reload` 만으로 **무중단 즉시 반영**(재부팅 불필요). 커널 실값 확인 = `cat /sys/fs/cgroup/user.slice/user-1000.slice/memory.{high,max}` · `cat /sys/fs/cgroup/system.slice/memory.min`.
+- ⚠️ **이후 클로드 세션이 갑자기 죽으면 그건 이 상한이 의도대로 동작한 것**이다. 전역 OOM(서버 전체 마비) 대신 **사용자 세션 안에서만** OOM 이 나도록 가둔 것이므로 장애로 오진하지 말 것. 구분법 = `dmesg` 의 `task_memcg` 가 `user-1000.slice` 면 상한 동작, `global_oom` 이면 진짜 사고.
+- **되돌리기**: 두 drop-in 파일 삭제 후 `daemon-reload` / 스왑은 `swapoff /swapfile && rm /swapfile` + fstab 백업 복원.
+- **회귀 검증 완료**: hyunsung 컨테이너 8개 Up·hsrealty/blog.wonrealty/wonrealty/realty99 전부 200 / realty99 컨테이너 10개 Up·realty99.co.kr 200·realty99.kr 200·blog.realty99.co.kr 301(이전 리다이렉트라 정상)·`/properties` 200.
+
+### 📌 재부팅은 불필요(2026-08-16 판단)
+죽은 5GB 프로세스의 메모리는 **커널이 kill 즉시 전량 회수**했다. 사고 후 실측 = used 4.2GB · available 3.5GB · **swap 사용량 0B** · 부하 0.34 → 누수 없음. 남은 4.2GB 는 전부 **현재 열려 있는 VS Code 창 2개의 실사용분**이라 재부팅해도 재접속하면 그대로 돌아온다. 실효 있는 정리는 재부팅이 아니라 **안 쓰는 VS Code 창을 닫는 것**(창 1개당 확장 호스트+Pylance+claude ≈ 1.0GB 즉시 회수).
+
+## 2026-08-21 작업 이력 — hsrealty 첫 전환 확인 + 힉스필드 Seedance 영상 검토
+
+### ✅ "담기 0건" 재판정 — 페이지 문제 아님으로 종결
+GA4 실측(속성 `properties/545181462`, realty99 `~/scripts/ga4_daily_report.py` 의 `_get_access_token`/`_run_report` 재사용. ⚠️ 이 서버엔 `google-analytics-data` 파이썬 패키지가 없다 — 그 스크립트는 **PyJWT+requests 로 REST 직접 호출**하므로 라이브러리 임포트로 짜면 `ModuleNotFoundError` 가 난다).
+
+| 지표 | 값 |
+|---|---|
+| 최근 14일 | 세션 471 · 사용자 389 · PV 733 (하루 약 34세션) |
+| 최근 28일 | 세션 558 · **add_to_cart 11** · **purchase 3** · click_to_call 1 · generate_lead 1 |
+| 유입(28일) | google/cpc **311(56%)** · direct 166 · 네이버 자연 20 · 구글 자연 19 · 네이버 플레이스 referral 10 |
+
+- **전환율 3/558 ≈ 0.54%** = 일반 이커머스 평균 범위. → 08-14 에 열어둔 "담기가 계속 0이면 상품 페이지 문제" 가설은 **기각**. 상품 페이지·장바구니·KCP 결제 흐름 전부 실사용으로 작동 확인됨.
+- **남은 병목은 유입량 하나**다. 산술: 전환율을 0.54%→0.8% 로 올려도 월 주문 3→4.5건인데, 유입을 2배로 하면 그대로 6건. **전환율 개선보다 유입 확대가 항상 우선.**
+
+### ⛔ 힉스필드 Seedance "beauty 연출" 상품영상 — 권하지 않음(현 시점)
+원대표 질문("시댄스로 beauty 작업하면 매출증대에 도움 될까")에 대한 검토 결과.
+- **힉스필드에 `beauty` 라는 모델·프리셋은 존재하지 않음**(MCP `models_explore` 검색 0건, `presets_show` 60여 개 전부 셀카·인물 바이럴 템플릿 = 레드카펫·K-pop 엔딩요정·좀비댄스 류). 화장품 광고식 글로시 연출을 뜻한다면 **인물·뷰티 상품용**이라 NAS 와 결이 안 맞음.
+- ⭐ **다만 08-14 판단은 일부 정정 필요** — **Seedance 2.0**(`seedance_2_0`, ByteDance)은 태그가 `product · multi-sku · e-commerce` 이고 **레퍼런스 이미지로 제품 정체성을 유지**하는 모델이다. "AI 는 DS925+ 외형(베이 수·LED·로고)을 못 그리니 제품 영상에 AI 금지"라던 제약이 **부분 완화**됨(단 실물 대조 검증 없이 쓸 수준은 아님). 파라미터: duration 4~15s, 480p~4k(`mode='std'` 필요), `generate_audio` 기본 true.
+- **권하지 않는 이유 3가지**: ①NAS 구매자는 **모델번호로 검색해 스펙·호환성·A/S를 본다**(GSC 노출 검색어가 지금도 전부 영문 모델번호) — 감성 연출은 구매 변수가 아님 ②병목이 전환율이 아니라 유입량이라 효과가 붙을 자리가 없음 ③**시놀로지 정품 판매점**이라 제품 외형이 실물과 다르면 신뢰 훼손 = 광고비보다 비싼 손실.
+- **대신 값을 하는 자리(권고 순서)**: ①**구글 쇼핑 `additional_image_link` 라이프스타일 컷** — 대표이미지는 정책상 흰 배경이라 못 건드리지만 추가이미지는 허용. 현재 전 상품이 흰 배경 정사각 패딩본(08-10 작업)이라 밋밋한데, **쇼핑광고 CTR 은 이미지가 크게 좌우**하고 이미 돌고 있는 유입 311세션에 즉시 붙는다. 영상보다 훨씬 싸고 빠름 ②릴스·쇼츠 소재로서의 영상 — 단 08-14 유튜브 미결 2건(촬영·편집 주체 / 3개월 지속 편수)이 그대로 걸리므로 그게 안 정해지면 시작하지 말 것 ③Seedance 를 쓴다면 **제품 외형이 아니라 추상 개념**(랜섬웨어·3-2-1 백업·파일 흐름)에 — 08-14 하이브리드 원칙 그대로.
+
+## 2026-08-25 작업 이력 — hsrealty 비주얼 리뉴얼 1·2단계 (힉스필드 AI 이미지)
+커밋 `67070b5`(hsrealty, push 완료). 원대표가 **A안(실사풍) 채택** 후 적용 승인. 계획 아티팩트: https://claude.ai/code/artifact/f0da3c1a-71b0-4dfe-af13-a6b60bf48c15
+- **생성**: 힉스필드 MCP(이 세션에서 직접). 실사풍=`soul_location`, 그래픽풍 시안=`recraft_v4_1`(`colors` 파라미터로 네이비 #16284a·골드 #c9a84c 직접 지정 가능). ⚠️ **비용이 예상보다 훨씬 쌈** — 12컷에 **약 5크레딧**(잔여 1,195/Plus 월 1,000 충전). 크레딧 아끼려 컷 수를 줄일 필요 없음.
+- **적용 내역**: ①홈 히어로 — 자식테마 `style.css` `.hs-hero` 배경에 사무실 컷+흰 그라디언트 오버레이(우측 DS925+ 실사진·공식 파트너 씰 유지), **버전 1.3.0→1.4.0**(enqueue 동기화) ②nas-guide(page 209) — `.hs-guide .hero` CSS에 사진 오버레이 + DSM 섹션 앞 LED figure(`HS_VIS_LED` 마커) ③setup-service(page 287) — `.hs-vhero` 사진 오버레이 + 진행절차 뒤 "실제 설치 현장" 실사진 3장 섹션(`HS_VIS_PHOTOS` 마커). 적용 스크립트 `hsrealty-import/visual_apply.php`(멱등, 마커 교체 방식) + 수정 전 본문 백업 `visual_apply_backup.json`. 테마 백업 `_theme_bak/{functions.php,style.css}.bak.20260825visual`.
+- **이미지**: WP 첨부 **442~448**(hero-a1·guide-top·guide-led·setup-top·real-unbox·real-tray·real-run, 전부 webp 80~111KB). 시안 원본 PNG·산출 webp는 `/mnt/nas/hyunsung/temp/hsrealty_visual_20260825/`(19파일). 실사진 원본은 `/mnt/nas/temp/DS725+/`·`DS224+와DS220J/`(원대표 촬영 언박싱·설치·운영 컷 10장 — DS220J는 구형이라 미사용 결정).
+- ⚠️ **AI 컷 검수에서 실제로 걸러진 것**: 노트북의 애플 로고(탈락), AI 가짜 한글 간판(안산 거리 컷 보류), 구식 리셉션 무드(탈락), B안 시안의 저녁 호텔풍(탈락). **생성 컷은 로고·글자·무드를 반드시 육안 검수 후 사용할 것.**
+- ⚠️ **실사진 EXIF 함정**: 같은 폰 사진인데 파일마다 EXIF orientation이 달라 일괄 회전 불가 — `ImageOps.exif_transpose` 후에도 3장 모두 필요 보정값이 달랐음(90CCW/없음/없음). 육안 확인 필수.
+- **검증**: 홈·nas-guide·setup-service + 이미지 7종 전부 HTTP 200, style ver=1.4.0 라이브 반영, onbid 컨테이너 Playwright 스크린샷으로 렌더링(오버레이 가독성·실사진 그리드) 확인.
+- **되돌리기**: 테마=`_theme_bak` 백업 복원, 페이지 2곳=`visual_apply_backup.json`의 원본 본문으로 `wp_update_post`.
+- **⏭️ 잔여**: ①지역 랜딩(/ansan-siheung-nas/) 컷 — 가짜 한글 문제로 **보류**(재생성 vs 미적용, 원대표 결정 대기) ②**3단계 미착수** — 주력 상품 12종 라이프스타일 컷(흰배경 실물 컷을 레퍼런스로 배경 합성 — 실물 대조 검증 필수) + 상품 갤러리 등록 + **피드 `additional_image_link` 출력 추가**(`hs-product-feed.php`, 현재 대표이미지만 전송) + 카테고리 배너 ③블로그 대표이미지(P3).
+
+### ✅ 같은 날 후속 — 배경 동영상 3편 적용 (커밋 `809f938`)
+원대표 요청("동영상도 넣고 싶다")으로 5초 무한 루프 영상 3편 생성·적용. **Seedance 2.5 `mode='omni_reference'` + start_image=end_image 같은 이미지 지정 = 끊김 없는 루프** 기법(기존 채택 이미지를 그대로 살아 움직이게).
+- **적용**: ①홈 히어로 배경 비디오 — functions.php `hs_hero_html()`에 `.hs-hero__bgvid`(absolute, z0) + `.hs-hero__veil`(기존 그라디언트, z1) 삽입, copy/media는 z2. **기존 배경 사진이 그대로 폴백**(poster + reduced-motion 시 display:none). 자식테마 **1.5.0** ②nas-guide LED figure를 시네마그래프 영상으로 교체(HS_VIS_LED 마커 블록 교체) ③도입사례(금강다온 3-2-1) 섹션에 개념 모션 삽입(HS_VIS_321 마커). 스크립트 `hsrealty-import/visual_motion_apply.php`(멱등).
+- **영상 첨부 451~453 + 포스터 454**. 파일이 놀랍게 가벼움(0.15~0.6MB/5초 1080p — 시네마그래프라 비트레이트 낮음), 압축 불필요였음. 생성비 3편 97.5크레딧(잔여 ~1,098).
+- ⚠️ **Seedance 함정 2개**: ①start/end_image는 `mode:'omni_reference'` 필수(기본 t2v는 422 거부) ②프리셋 추천이 제출을 가로챌 수 있음 — `declined_preset_id`로 재시도.
+- ⚠️ 아티팩트의 data URI mp4는 원대표 환경에서 재생 안 됐음 — **영상 시안은 라이브 적용 후 실사이트로 확인받는 편이 확실**.
+- ⚠️⚠️ **최대 함정(커밋 `e7f936f`에서 수정): 힉스필드 mp4는 HEVC(H.265) Main 10** — 크롬 등 대부분 브라우저에서 재생 불가라 배포 직후 "홈 안 보임·가이드 멈춤" 발생. **힉스필드 영상은 반드시 `ffmpeg -c:v libx264 -pix_fmt yuv420p -movflags +faststart`로 재인코딩 후 배포할 것**(moov도 원본은 mdat 뒤라 스트리밍에도 불리). 파일이 이상하게 작으면(5초 1080p가 0.2MB대) HEVC 의심. + wp_footer에 `video[autoplay]` muted play() JS 폴백 추가돼 있음(자식테마 functions.php 말미).
+- ⚠️ **서버 headless(Playwright chromium) 검증 한계**: 오픈소스 크로미움은 HEVC 코덱이 없어 `canPlayType`으로 먼저 확인해야 함(h264=probably·hevc=""). HEVC였을 때도 poster 프레임 때문에 스크린샷만으론 "재생 중"으로 오판했음 — **재생 검증은 `video.readyState`(4)·`currentTime` 진행으로 판정**할 것.
+- **원대표 피드백 2건 반영(커밋 `2dea0f5`)**: ①"홈에 영상이 어디 있나" → veil 오버레이가 너무 진해 모션이 안 보였음 — 우측 투명도 대폭 완화(.42→.06, 좌측 텍스트 영역은 .93 유지) ②"LED 컷이 너무 흐림" → 흐린 AI 컷 대신 **원대표 실사(운영 중 DS725+ LED 컷)를 가로 크롭해 Seedance 레퍼런스로 LED 깜빡임만 애니메이트**(첨부 457 mp4·458 poster, 실물 대조 검증 통과, 캡션 "저희 사무실에서 실제 운영 중인 DS725+"). **교훈: 배경 영상 위 오버레이는 모션이 보일 만큼 옅게, "흐릿한 AI 컷"은 실사 시네마그래프로 대체가 정답.**
+- **원대표 2차 피드백 반영(같은 날 저녁)**: ①홈 히어로를 **모션 강화 버전으로 교체**(빛·그림자가 크게 쓸고 지나가는 리빙 포토 — hero-motion.mp4 파일만 교체, 1.2MB) ②LED 실사 컷의 **본체 먼지를 Seedream 5.0 Pro(`is_inpaint:true`) 편집으로 제거** 후 그 클린 이미지로 LED 영상 재생성·교체(led-real-motion.mp4·poster 교체). **편집→영상 체인은 job_id를 medias value로 바로 넘기면 됨**(재업로드 불필요). 실물 대조 검증 통과.
+
+### ✅ 같은 날 3단계 완료 — 상품 라이프스타일 컷 11종 + 피드 + 지역 랜딩 (커밋 `452c85f`)
+- **상품 11종 라이프스타일 컷**: 주력 NAS 본체(DS124·DS225+·DS425+·DS725+·DS925+·DS1525+·DS1825+·neo+ 4종. DS224+는 상품 미등록이라 제외). **Seedream 5.0 Pro `is_inpaint:true` + 대표이미지 `media_import_url`(공개 URL이면 S3 업로드 불필요)** 로 제품 픽셀 유지한 채 사무실 배경 합성(책상·선반·캐비닛 3장면 로테이션, 네이비·골드 톤). **전수 검수: 베이 수·로고·형태 전부 정확** — 걸러낸 것은 DS124 컷의 원본 유래 텍스트 오버레이 1건뿐(Seedream 편집으로 제거 후 채택).
+- **갤러리 등록 → 피드 자동 반영**: `hsrealty-import/lifestyle_gallery_apply.php`(멱등)로 각 상품 갤러리에 추가(첨부 460~470, alt 포함). ⭐ **`hs-product-feed.php`는 원래부터 갤러리를 `g:additional_image_link`로 전송하는 코드가 있었음**(갤러리가 비어 있어서 안 나갔던 것 — "피드 수정 필요" 기록은 착오). 등록 즉시 피드에 additional_image_link **74건** 출력 확인. 구글 다음 크롤 때 쇼핑 노출에 반영.
+- **지역 랜딩(/ansan-siheung-nas/, page 303)**: 간판·글자가 식별 안 되는 **신도시 아침 원경 컷**(soul_location) 재생성 → `.hs-lhero`에 네이비 오버레이로 적용(`local_hero_apply.php`, 첨부 471). 창밖 뷰 후보는 간판 글자 노출로 탈락.
+- 원본·webp 는 NAS `hsrealty_visual_20260825/lifestyle/`(26파일). 검증: 상품 페이지 갤러리 썸네일·지역 랜딩 렌더링 스크린샷 확인, 전 페이지 200.
+- **금일 힉스필드 총 사용 ~315크레딧 / 잔여 885**.
+
+### ✅ 같은 날 P3 완료 — 블로그 글 14편 대표이미지 (커밋 `256bdf4`)
+hsrealty 기술 블로그 공개 글 14편 전부 대표이미지가 없던 것 → 전부 설정. **8컷 신규 생성**(soul_location, 주제 맞춤: HDD 고르기·3인 사무실·계산기·야간 백업·공유기·이사 박스·랜케이블·5책상) + **6편은 기존 자산 재활용**(정품 스티커 실사→헤놀로지vs정품, 설치 작업대(445)→직접vs맡기기, B-1 골드 그래픽→테일스케일, LED 실사(458)→부동산 도입기, DS224+ 개봉 실사→3년 실사용기, neo 라이프스타일(468)→neo+ 가격 글). 첨부 473~483, 스크립트 `hsrealty-import/blog_thumbnails_apply.php`(멱등). ⚠️ **160514 사진은 EXIF가 역방향** — `exif_transpose`가 오히려 세로로 망침, 이 파일은 raw 픽셀이 정방향. **비주얼 리뉴얼 P1~P3 전체 완료.** 향후 새 블로그 글 대표이미지는 NAS `hsrealty_visual_20260825/blog/` 원본 풀 재활용 또는 같은 스타일로 생성(soul_location, no text/logos).
+
+### ✅ 2026-08-26 — 홈 "사진 중심" 리뉴얼 (원대표 "여전히 투박" 피드백, 커밋 `35087d4`)
+- **홈 카테고리 헤더 14개 전부 → 사진 배너 카드**(`.hs-catband`, 150px 풀폭, 사진+네이비 그라디언트+카테고리명·한줄 카피·"전체 보기", 전체가 링크) + **비주얼 밴드 2개**(`.hs-photoband`: 방문설치 실사→/setup-service/, 사무실 컷→/nas-guide/, HDD·소프트웨어 섹션 앞). 자식테마 **1.6.0**. 스크립트 `hsrealty-import/home_catband_apply.php`(멱등, 원본 백업 `home_catband_backup.json`).
+- 배너 이미지: 기존 자산 7개 재활용(life-ds925·life-ds1825·blog-hdd·blog-router·blog-cable·guide-led·hero-a1) + 신규 7컷(cat-rack·rail·nvme·extssd·ram·camera + B-3 그래픽=cat-shield, 첨부 484~490, 21:9 제네릭·로고 없음 검수).
+- ⚠️⚠️ **함정: 클래식 콘텐츠에서 `<a>` 안에 블록(div/h2)을 넣으면 wpautop이 p를 끼워넣어 브라우저가 a를 3조각으로 복제** — catband가 DOM에 42개로 늘어났었음. **해결 = 배너·밴드를 각각 `<!-- wp:html -->` 블록으로 래핑**(wpautop 차단, 숏코드는 그대로 동작). +`<span>` 안에 h2 넣는 것도 금지(파서가 구조 깨뜨림 — div로).
+- 검증: catband 14개 정확, 사진·텍스트·lazy 로딩 정상(화면 밖 배너 사진 빈 것은 lazy 정상 동작), 홈 200.
+- **배경 패턴 전환(같은 날, 커밋 `f48927b`, 자식테마 1.7.0)**: 원대표 요청("흰 바탕→무늬 바탕")으로 body 배경을 **CSS 패턴**(#f6f8fb + 24px 네이비 미세 도트 + 상단 네이비·좌측 골드 라디얼 틴트, 이미지 파일 없음)으로 전환. 흰 상품 카드가 배경 위에 떠 보이는 구조. 전 페이지 공통 적용(body라 자동). 백업 `_theme_bak/style.css.bak.20260826pattern`. 되돌리기=body 블록 원복.
+- 테마 백업 `_theme_bak/*.bak.20260825motion`, mp4 원본 NAS `hsrealty_visual_20260825/` 보관. 검증: 마크업·200·Playwright 스크린샷(재생 중 프레임 확인) 완료.
+
 ## 미완료 항목
+- [ ] **hsrealty 유튜브 채널 — 착수 전 결정 대기(2026-08-14)**: ①촬영·편집 주체 ②주 몇 편 3개월 유지 가능한가. 결정되면 첫 편(3-2-1 백업) 힉스필드 프롬프트+나레이션 대본 작성. **하이브리드 원칙 준수**(제품 외형·DSM 화면·설치 현장은 AI 금지). 상세는 위 2026-08-14 이력.
+- [x] ~~**hsrealty 담기 0건 재판정(2026-08 하순)**~~ — **✅ 완료(2026-08-21 GA4 실측)**. 28일 세션 558에서 **add_to_cart 11 · purchase 3**(전환율 0.54%) → **상품 페이지 문제 아님**으로 결론. 유입 내역 google/cpc 311(56%) · direct 166 · 네이버 자연 20. ⚠️ 이 줄의 옛 수치("8일 210세션·담기 0")를 근거로 페이지 개선을 다시 제안하지 말 것 — **남은 과제는 유입량 확대 하나**다. 상세는 2026-08-21 이력 참조.
+- [x] ~~**hsrealty 네이버 파워링크 판단(8/15~16)**~~ — **✅ 완료(2026-08-15 검색광고 API 실측으로 확인)**. "입찰가 인상이냐 중단이냐"는 **인상 + 그룹 세분화 + 매체 분리**로 답이 났다.
+  - 광고그룹: 구 `현성리얼티_광고그룹#1_브랜드일반`(70원) **PAUSED**, 신설 `브랜드일반`·`모델명`·`설치구축` **200원** / `콘텐츠` 70원.
+  - 캠페인도 **`현성리얼티 파워링크`(일 5,000원)** 와 **`현성리얼티 콘텐츠확산`(일 2,000원)** 으로 분리 — 검색 실적이 콘텐츠 매체 노출에 묻혀 CTR이 착시로 깎이던 문제를 구조적으로 해소.
+  - 08-09~15 실측: 파워링크 노출 4,290 · 클릭 3 · 비용 472원 · CTR 0.07% · 평균순위 4.3. **"클릭 0"은 더 이상 현재 상태가 아니다** — 이 줄의 옛 수치(8/14 노출 1,046/클릭 0)를 근거로 다시 판단하지 말 것.
+  - ⚠️ 조회 방법은 [[project_naver_searchad]] 참조. `/stats`의 `ids`는 JSON 배열이 아니라 쉼표 나열.
 - [x] ~~PDF 파일 동기화~~ — 완료 (498/498)
 - [x] ~~certbot 자동 갱신 설정~~ — 완료 (systemd timer)
 - [ ] VWorld API 도메인 인증 (wonrealty.kr 등록 필요 — map.vworld.kr 개발자 콘솔)
@@ -780,6 +953,40 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
       - **검증(교체 전 격리 테스트 → 교체 후)**: pip freeze 완전 일치 · OS 보안 0건 · **Playwright 실구동**(chromium 148.0.7778.96로 courtauction.go.kr 로드) · `app.main`·`scheduler` 임포트 · 워커 3종 구문 · DB `integrity ok`/properties 5475/WAL 유실 없음 · 스케줄러 **5개 잡 재등록** · `/health` 200 · API 401(인증 정상 동작) · **대법원 스크래퍼 실행으로 실제 공고 10건 수집 성공**.
       - ⚠️ **여기서도 nginx DNS 캐시 함정 동일** — 백엔드 재생성 시 IP가 바뀌므로 `docker compose up -d backend && docker exec onbid-nginx nginx -s reload`로 묶어서 실행할 것.
       - **롤백**: `docker tag onbid-backend-rollback:20260725 onbid-auction-finder-backend:latest && docker compose up -d backend && docker exec onbid-nginx nginx -s reload` (+ 필요 시 Dockerfile·requirements 백업 복원).
+  - **✅ 404 폭주 스캐너 자동차단 잼 신설(2026-08-21)** — 계기: 08-20 05:48 KST 에 **GCP 임시 VM(136.110.54.83)이 37초에 566건**으로 `.env`·`/.aws/credentials`·`/.ssh/id_rsa`·**`.claude.json`·`.anthropic/config.json` 등 자격증명 파일을 훑었고(UA 를 ClaudeBot·GPTBot·PerplexityBot·Amazonbot 등 **AI 크롤러로 위장** — 진짜는 `googleusercontent.com` 고객 VM, 지금은 삭제돼 응답 없음), 07/26~08/09 에는 **프랑스 IP 4개(185.177.72.23/.31/.38/.58, curl/8.7.1)가 13,218건**. **둘 다 기존 잼(sshd·hsrealty-wp-auth)에 전혀 안 걸렸음** — WP 로그인 실패만 감시했기 때문. 피해는 0(GCP건 404 503·403 36·200 12=홈과 정상 JS 뿐. `/?file=../.env` 200 은 WP 가 쿼리 무시하고 홈을 준 것으로 응답크기 23,858B≈홈 23,846B 로 확인). **403 36건은 07-25 하드닝(bak/log/sql deny·wp-admin IP제한)이 실제로 막은 것.**
+    - **구조**: nginx access log 는 stdout 이라 fail2ban 이 못 읽음 → **컨테이너를 건드리지 않고**(볼륨 추가=재생성=DNS캐시 502 함정 회피) `nginx-log-mirror.service`(`/usr/local/bin/nginx-log-mirror.sh`, `docker logs -f --tail 0 onbid-nginx >> /var/log/nginx-mirror/access.log 2>/dev/null`, Restart=always, enabled)가 파일로 흘려주고 fail2ban 이 그 파일을 polling. logrotate `/etc/logrotate.d/nginx-mirror`(일간 7일 copytruncate).
+    - **잼 `[nginx-404-scan]`**(jail.local 말미, 백업 `jail.local.bak.20260821`): filter `nginx-404-scan`, **maxretry 40 / findtime 2m / bantime 1d**(전역 increment 로 재범 최대 1w), `banaction=iptables-multiport` + **`chain=DOCKER-USER`**(공개포트라 DNAT→FORWARD 경로. INPUT hook 밴은 무효).
+    - **임계치 근거(실측)**: 역DNS 로 검증한 **정품 검색엔진 봇의 2분 내 404 는 최대 3건**(googlebot 3·msnbot 2). 40건은 13배라 오탐 여지 없음. 보존 로그 전체 시뮬레이션 결과 **걸리는 IP 18개는 전부 스캐너**였고, 그중 `45.45.237.7`은 **bingbot 을 사칭**(실제 Infraly LLC, `.git/config`·`.env.local` 요청), `34.91.197.153`은 Amazonbot 사칭(GCP 대역).
+    - ⚠️ **403 은 일부러 카운트에서 제외** — wp-admin IP 제한 등 정상 상황에서도 나므로 관리자 오탐 방지.
+    - ⚠️ **datepattern 은 기본 `{DATE}` 로 둘 것** — `%%d/%%b/%%Y:%%H:%%M:%%S %%z` 로 명시하면 **매칭이 503→0 으로 죽는다**(실측). fail2ban 이 뱉던 "9시간 전 로그(timezone)" 경고는 access 가 아니라 **nginx error log 라인**이 원인이었고, 미러에서 stderr 를 버리는 것으로 해소됨.
+    - **검증 완료**: `fail2ban-regex` 로 실제 공격 로그 매칭(GCP 503/503 · 프랑스 10,459/10,459) · realty99 에서 404 45건 실발생 → 미러 기록·필터 탐지 확인(ignoreip 라 `Ignore ... by ip` 로 밴 생략=정상) · 수동 밴으로 `DOCKER-USER → f2b-nginx-404-scan → REJECT` 경로 확인 후 해제 · 타임존 경고 0 · 재부팅 자동기동(enabled).
+    - ⚠️ **밴 확인 시 `iptables -L DOCKER-USER` 에 IP 가 안 보이는 게 정상** — DOCKER-USER 에는 점프 규칙만 있고 IP 는 하위 `f2b-nginx-404-scan` 체인에 있다. `sudo iptables -S | grep f2b` 로 볼 것.
+    - **되돌리기**: `sudo fail2ban-client stop nginx-404-scan` + jail.local 백업 복원 + `systemctl disable --now nginx-log-mirror.service` + 유닛·스크립트·필터·logrotate 삭제.
+  - **✅ 아침 8시 방문자 리포트에 "서버 보안" 섹션 추가(2026-08-21)** — 계기: 원대표 질문 "대량 공격이 있었는데 리포트엔 대량 방문이 없었나?". **없었다.** GA4 는 **자바스크립트를 실행하는 브라우저만** 세므로 curl 기반 스캐너가 원리적으로 안 잡힘. 실측 대조(서버 nginx 요청 vs GA4 세션): **07/26 12,622요청(스캐너 3,677) → 3세션** · **08/06 25,736요청(스캐너 9,043, 평소의 2배) → 5세션** · 08/09 17,239(498) → 20 · 08/19 18,291(566) → 42. **8/6 리포트 실제 문구를 재현하니 "방문자 5명 · 세션 5회"** — 공격이 한 줄도 없었음. → 7월 26일·8월 6일 두 번의 대량 스캔이 **아무 데도 보고되지 않은 채 지나갔음.**
+    - **구성**: 양 서버에 `~/scripts/security_summary.sh <nginx컨테이너>`(전일 KST 기준 총요청·404 응답수·404 를 20건 이상 낸 IP 상위 5 + "외 N개"·전일 fail2ban 밴 목록). realty99 의 `ga4_daily_report.py` 에 `_security_section()` 추가(백업 `ga4_daily_report.py.bak.20260821`) — 로컬은 직접 실행, hyunsung 은 `ssh hyunsung` 으로 조회, **한쪽이 실패해도 나머지는 싣고 리포트 발송 자체는 절대 막지 않음**(기존 메일요약과 동일 정책). dry-run 검증 완료, 2026-08-22 아침부터 반영.
+    - 자기 서버·도커·tailnet IP(`127.`·`172.16~31.`·`100.`·`5.104.87.`)는 집계에서 제외. 양 서버 nginx 로그가 **둘 다 UTC** 라 `docker logs --since/--until`(로컬시각 해석)로 KST 전일을 정확히 자름.
+    - **✅ realty99 에도 동일 장치 적용 완료(2026-08-21, 사용자 지시)** — 계기: realty99 가 오히려 더 맞고 있었음. 08-20 하루만 **Azure 대역 10개 IP가 404 1,199건**(`/wp-content/plugins/hellopress/wp_filemanager.php`·`/1.php`·`/admin.php` 등 **웹셸 백도어 탐색**), **hyunsung 을 턴 프랑스 대역(185.177.72.54)도 realty99 에 2,995건**. 기존 잼(sshd·wordpress)엔 안 걸렸음.
+      - 구성은 hyunsung 과 동일(`nginx-log-mirror.service`→`realty99_nginx`, 필터·잼 이름 동일, maxretry 40/findtime 2m/bantime 1d, `chain=DOCKER-USER` — realty99 도 80/443 공개포트라 필수). 백업 `jail.local.bak.20260821`.
+      - **ignoreip 도 함께 보강** — realty99 는 `127.0.0.1/8 ::1 100.64.0.0/10` 뿐이라 **도커 브리지(172.16.0.0/12)·짝서버(5.104.87.178)·자기 공인IP(5.104.87.20)가 빠져 있었다** → 추가함(hyunsung 은 이미 포함돼 있었음). 이 누락은 기존 sshd·wordpress 잼에도 해당됐던 것.
+      - **검증**: 필터가 realty99 실로그의 404 를 **1,199/1,199 정확히 매칭**(대조군 일치) · hyunsung 에서 404 45건 실발생 → 미러 45건 기록·탐지 45건(ignoreip 라 밴 생략=정상) · 수동 밴으로 `DOCKER-USER → f2b-nginx-404-scan → REJECT` 확인 후 해제 · 미러에 error 라인 0 · 타임존 경고 0 · 재부팅 자동기동 enabled.
+      - 임계치 근거(realty99 실측): **정품 검색엔진 봇의 2분 내 404 는 최대 4건**(msnbot 4·googlebot 3). 삭제된 매물 404 가 많은 사이트인데도 그렇다.
+    - **⚠️⚠️ realty99 는 vhost 로그가 두 갈래라 경로를 하나 더 물려야 했다(2026-08-21 실측 발견)** — `realty99-kr.conf`·`blog-realty99.conf` 가 **`access_log /var/log/nginx_f2b/access.log`**(호스트 `/opt/realty99/logs/nginx/access.log`, 기존 wordpress 잼용)로 **stdout 대신 파일에 쓴다** → `docker logs` 미러에 안 잡혀서, 처음 붙인 잼이 **realty99.kr·blog.realty99.co.kr 을 전혀 감시하지 못하고 있었다**(realty99.co.kr=daon 만 커버). 잼 `logpath` 에 두 경로를 함께 지정해 해소. **hyunsung 은 conf.d 에 access_log 가 없어 전 vhost 가 stdout → 미러 하나로 전부 커버**(wonrealty.kr 404 45건 실발생으로 확인).
+      - 그 별도 로그에 **프랑스 대역(185.177.72.x)이 IP당 약 3,000건씩** 쌓여 있었다(`realty99.kr` 404 총 9,116건 = 이 서버 최대 피해 도메인). **로테이션이 없어 71MB** 까지 자라 있어 `/etc/logrotate.d/realty99-nginx`(weekly·8회·**copytruncate** — 컨테이너가 파일을 열어둔 채 쓰므로 필수) 추가.
+    - **✅ 도메인 무관 동작 실증(2026-08-21)** — ①**밴**: hyunsung 이 realty99 IP 를 밴하자 `hsrealty.co.kr`·`wonrealty.kr`·`blog.wonrealty.kr` **3개 도메인이 동시에 차단**(해제 후 전부 200 복구). 밴 규칙이 `DOCKER-USER` 에 **포트 80/443 전체**로 걸리므로 vhost 를 가리지 않는다. ②**탐지**: `wonrealty.kr`·`realty99.kr`·`blog.realty99.co.kr` 각각에 404 45건을 실발생시켜 전부 탐지 확인. → **한 도메인을 공격해도 그 IP 는 그 서버의 모든 사이트에서 막힌다.**
+    - **✅ 침해 여부 전면 점검 — 털린 것 없음(2026-08-21, 양 서버·4개 워드프레스)**. 점검 항목과 근거:
+      - **웹 유출 0**: 스캐너가 `.env`·`/www/.env`·`/var/.env.local.php` 등에 **200 을 받은 기록이 있으나 전부 12,304B = 홈 HTML 과 정확히 같은 크기** → 파일이 아니라 WP 가 홈을 준 것(현재 직접 요청해도 `<!doctype html>`). `wp-config.php`·`.bak` 은 **403**(07-25 하드닝). `/wp-content/themes/`·`/plugins/` 는 0B(디렉터리 리스팅 없음).
+      - **코어 무결성**: hsrealty·blog.wonrealty·realty99 워드프레스 **3곳 모두 `verify-checksums` 통과**(`wp-config-docker.php` 경고는 공식 도커 이미지 파일이라 정상).
+      - ⚠️ **`hello.php` 체크섬 불일치는 오탐** — 공식본과 diff 결과 **차이가 딱 한 줄, 번역 텍스트도메인 인자(`'hello-dolly'`) 유무뿐**(코어 번들본 vs wp.org 배포본 차이). 의심 함수 0개, 파일 mtime 2019-03-19. **다시 볼 때 놀라지 말 것.**
+      - **웹셸 0**: uploads 하위 PHP **0건**(양쪽), 웹루트 전체 악성 패턴 스캔에서 나온 3건은 코어 `kses.php`·WooCommerce 벤더 파일(정상).
+      - **계정**: 관리자 각 **1명**(hsrealty·realty99 blog 모두 `ausqueen`), 무단 추가 없음. hsrealty 사용자 3명 = 관리자1 + 실고객2(jybae=08-20 주문자, seokhyeon0913=08-03 가입).
+      - **로그인 침해 0**: wp-login **POST 302(성공)는 원대표 IP 뿐** — hsrealty 10건(사무실 116.41.161.23 7·집 58.225.109.232 3), realty99 4건(집). 공격자 IP 의 POST 는 전부 200(=실패) 또는 **403**(hsrealty 는 nginx IP 제한이 GET 548·POST 490 건을 차단). realty99 는 nginx `limit_req` 가 217.79.118.178 의 대량 시도에 **503 917건**을 반환하며 막았음. 세션 토큰·앱비밀번호도 전부 원대표 IP·자기 서버.
+      - **시스템**: SSH `authorized_keys` 에 아는 키만(hyunsung 1·realty99 2), 로그인 성공은 집·사무실·테일넷·짝서버 IP 뿐. 열린 포트 22/80/443+tailscale 만. www-data 로 도는 수상한 프로세스 0. 아웃바운드는 tailscale DERP·Anthropic API·텔레그램(hermes) 로 전부 설명됨. 크론·root 크론 정상.
+      - **DB**: options 테이블에 `<script`/`eval(`/`base64_decode` **0건**, 본문에 script 태그 있는 공개글 **0건**(양쪽).
+      - **고객 데이터**: daon 은 **회원 계정 테이블 자체가 없음**(daondb 8테이블). 문의 데이터(proxy_inquiry 5·sell_inquiry 3·bid_record 7)는 API 가 **403/404/405** 로 비인증 접근 차단. WooCommerce 주문·고객·설정 REST 는 **401**, KCP 결제 자격증명 조회도 **401**.
+      - **⚠️ 전송량 166MB 는 유출 아님** — 프랑스 IP 4개에 각 165MB 가 나갔으나 **164MB 가 404 페이지**(건당 65KB). 200 으로 나간 1.8MB 는 장바구니·jQuery·홈 등 공개 자산뿐. → 다만 **WP 404 페이지가 69KB 나 되어 스캐너에 대역폭을 크게 내주는 구조**(4개 IP 합계 660MB). 경량 404 전환은 미조치(이제 fail2ban 이 막으므로 자연 완화).
+    - 참고: `realty99.kr` 의 `wp-content/uploads` 404 3,894건은 공격도 서비스 장애도 아님 — `/wp-json/wp/v2/posts/"https:/realty99.duckdns.org/...` 형태의 **이관 작업 중 잘못된 URL 요청** 잔재. 실제 이미지는 현재 200 정상.
+    - ⚠️ **잼 가동 직후 밴 0 은 정상** — 미러가 `--tail 0` 이라 가동 이후 트래픽만 본다. 당일 이전 스캔(hyunsung 45.148.10.140 이 KST 00:39·08:50 두 차례 `/.env` 계열 136건 등)은 소급 집계되지 않는다.
+  - **⏭️ 미조치(보고만)**: `/wp-json` 이 인증 없이 **654개 라우트 목록(1MB)** 을 내줌 — 실제 데이터는 전부 401(주문·고객·설정·KCP)이고 `wp/v2/users` 는 404 라 유출은 없으나 정찰 자료는 됨. 축소는 사용자 판단으로 보류.
 - [x] ~~(권장) ABB 백업 전 WAL DB 사전 스냅샷(`sqlite3 .backup`) 훅~~ — 완료 (2026-07-08, `snapshot-db.sh` + systemd 타이머 02:50 KST, ABB 섹션 참조)
 - [x] ~~**온비드 일일 동기화 성능 개선 + 429 원인 제거**~~ — **완료·재개(2026-07-12, 아래 작업이력 참조)**. 증분 동기화로 상세 API 호출을 신규·결측 물건에만 한정(전건 재조회 폐지) → 429 구조적 소멸. 목록 중복(회차별 예정가 다행) 결정론적 dedup + 시세 실행내 캐시 + 상세 일일 상한/429 백오프 추가.
   로그의 `지원하지 않는 시도: …`는 에러 아님 — `molit_client.py`, 미지원 시·도 시세 조회 스킵 경고.
