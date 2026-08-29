@@ -188,6 +188,8 @@ def run():
 
                     downloaded_file_path = None
                     attachment_filename_val = None
+                    page_load_failed = False   # 상세 페이지 로딩 실패(타임아웃 등) 여부
+                    found_links = False        # 페이지에서 첨부 링크를 발견했는지 여부
 
                     try:
                         await detail_page.goto(prop.notice_url, timeout=30000)
@@ -240,6 +242,7 @@ def run():
                             
                             # PDF 우선 정렬 (.pdf = 0, .doc = 1, .hwp = 2)
                             if attachments:
+                                found_links = True
                                 attachments.sort(key=lambda x: 0 if x["ext"] == '.pdf' else (1 if x["ext"] == '.doc' else 2))
                                 
                                 downloaded_attachments_info = []
@@ -278,12 +281,39 @@ def run():
                             logger.error(f"파일 다운 실패 ({prop.id}): {dl_err}")
 
                     except Exception as e:
+                        page_load_failed = True
                         logger.error(f"상세 페이지 오류 ({prop.id}): {e}")
+
+                    # ── 폴백: 페이지에서 못 받았으면 Phase 2a가 동기화해둔 로컬 파일로 분석 ──
+                    if not downloaded_file_path and prop.attachments:
+                        try:
+                            _prio = {".pdf": 0, ".doc": 1}
+                            _cands = sorted(
+                                [a for a in prop.attachments if a.get("local_filename")],
+                                key=lambda a: _prio.get(a.get("ext"), 2),
+                            )
+                            for a in _cands:
+                                _p = os.path.join(DOWNLOAD_DIR, a["local_filename"])
+                                if os.path.exists(_p) and os.path.getsize(_p) > 0:
+                                    downloaded_file_path = _p
+                                    attachment_filename_val = a.get("filename")
+                                    logger.info(f"[Phase2] 로컬 동기화 파일로 분석 ({prop.id}): {a['local_filename']}")
+                                    break
+                        except Exception as fb_err:
+                            logger.warning(f"[Phase2] 로컬 파일 폴백 실패 ({prop.id}): {fb_err}")
 
                     # ── Gemini 분석 (HWP/HWPX는 hwp5html·XML로 텍스트 추출 후 분석) ──
                     try:
                         if not downloaded_file_path:
-                            # 분석 가능한 첨부파일 없음: 메타데이터만 저장하고 완료 처리
+                            if page_load_failed or found_links:
+                                # 일시 장애(페이지 타임아웃) 또는 링크는 있는데 다운로드 실패:
+                                # "첨부파일 없음"으로 확정하지 않고 미분석 상태를 유지해 다음 실행에서 재시도
+                                logger.warning(
+                                    f"[Phase2] 다운로드 실패 — 미분석 유지, 다음 실행에서 재시도 "
+                                    f"({prop.id}, page_load_failed={page_load_failed}, found_links={found_links})"
+                                )
+                                continue
+                            # 페이지는 정상인데 첨부 링크 자체가 없음: 메타데이터만 저장하고 완료 처리
                             prop.is_analyzed = True
                             prop.ai_summary = None
                             db.commit()
