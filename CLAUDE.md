@@ -37,7 +37,8 @@
 
 - 테일넷을 먼저 쓰는 이유는 3배 빠르고, 공인 접속은 realty99 방화벽의 이 서버 IP 화이트리스트에 의존해 IP가 바뀌면 끊기기 때문.
 - **공인 경로는 금지가 아니라 대체 수단.** tailscaled가 죽거나 매직DNS가 안 풀리면 `-public`으로 붙어서 작업을 이어갈 것. 화이트리스트도 그래서 남겨둔 것이니 지우지 말 것.
-- 이 서버 22번 규칙: `-i tailscale0 ACCEPT` + 공인IP 3개(realty99 5.104.87.20·사무실 116.41.161.23·집 58.225.109.232) ACCEPT + 나머지 DROP.
+- **사무실·자택 IP는 `~/scripts/sync_dyn_ip.sh`(매일 04:40 크론)가 DDNS로 추종해 자동 갱신한다** (08-28 신설, 중앙 실행은 realty99가 12시간마다(07:10·19:10) `--all`). 대상은 iptables 22번 규칙과 `wonrealty.conf`의 wp-login/wp-admin `allow` 줄 중 **`dynip:office`/`dynip:home` 마커가 붙은 것뿐** — 설정 편집 시 이 주석을 지우지 말 것. 현재값 확인은 `sync_dyn_ip.sh --status`.
+- 이 서버 22번 규칙: `-i tailscale0 ACCEPT` + 공인IP 3개(realty99 5.104.87.20·사무실 182.209.82.204(2026-08-28 변경, 구 116.41.161.23)·집 58.225.109.232) ACCEPT + 나머지 DROP.
 - 반대 방향(realty99→hyunsung)도 동일하게 `ssh hyunsung` / `ssh hyunsung-public`.
 
 ## 메일 — 발송·수신 둘 다 가능 (2026-08-14 검증)
@@ -108,9 +109,9 @@ docker compose build backend && docker compose up -d backend   # 코드 수정 �
 
 | Phase | 스크립트(컨테이너 경로) | 역할 | 자동 실행(KST) |
 |-------|----------|------|------|
-| Phase 1 | debug.py (scourt_scraper 래핑) | 대법원 공매 목록 수집 | 08:30, 13:30 |
-| Phase 2a | download_sync_worker.py (quick/full) | PDF 파일 동기화 | 08:35, 13:35 |
-| Phase 2b | analyze_worker.py | Gemini AI 분석 | 08:40, 13:40 |
+| Phase 1 | debug.py (scourt_scraper 래핑) | 대법원 공매 목록 수집 | 08:30, 13:30, 17:30 |
+| Phase 2a | download_sync_worker.py (quick/full) | PDF 파일 동기화 | 08:35, 13:35, 17:35 |
+| Phase 2b | analyze_worker.py | Gemini AI 분석 | 08:40, 13:40, 17:40 |
 | ~~(온비드)~~ | ~~sync_properties()~~ | ~~온비드 일일 동기화~~ | **비활성화(2026-06-29)** |
 
 수동 실행 예:
@@ -208,7 +209,7 @@ docker exec -d onbid-backend bash -c 'cd /app && python analyze_worker.py'      
 - **공개**: `https://blog.wonrealty.kr`. nginx `wonrealty.conf` 말미에 80/443 블록 append(백업 `wonrealty.conf.bak.20260723`).
   - SSL: 기존 `wonrealty.kr` lineage **SAN 확장**(blog 추가, 총 4도메인, 만료 **2026-10-21**) — `certbot-renew.timer`가 그대로 자동갱신.
 - **WP 설정**: 제목 "원리얼티 블로그", 관리자 `ausqueen`(비번 `.env` WP_ADMIN_PASSWORD, chmod600), 타임존 Asia/Seoul, 고유주소 `/%postname%/`.
-- **하드닝**: nginx=hsrealty 세트 동일(xmlrpc 403·readme/wp-config 차단·보안헤더·**wp-login/wp-admin IP 제한** 116.41.161.23·58.225.109.232, admin-ajax 공개). WP=**mu-plugin** `data/wp/wp-content/mu-plugins/blogwr-hardening.php`(xmlrpc off·generator 제거·REST users 404·author 열거→홈 301, template_redirect priority 0). 검증 매트릭스 전부 통과.
+- **하드닝**: nginx=hsrealty 세트 동일(xmlrpc 403·readme/wp-config 차단·보안헤더·**wp-login/wp-admin IP 제한** 182.209.82.204·58.225.109.232, admin-ajax 공개). WP=**mu-plugin** `data/wp/wp-content/mu-plugins/blogwr-hardening.php`(xmlrpc off·generator 제거·REST users 404·author 열거→홈 301, template_redirect priority 0). 검증 매트릭스 전부 통과.
 - **명령**: `cd /opt/blog-wonrealty && sudo docker compose ps | logs -f wordpress`. wp-cli: `sudo docker compose --profile cli run --rm wpcli <cmd>`.
 - **테마(2026-07-23)**: **GeneratePress 3.6.1** + 브랜드 커스텀 CSS(네이비 #16284a/골드 #c9a84c, WP 커스터마이저 custom_css post 14).
 - **SEO(2026-07-23)**: mu-plugin `blogwr-seo.php` = meta description+OG+twitter:card(대표이미지 자동, 폴백 BLOGWR_OG_IMAGE)·robots.txt에 Sitemap 명시·소유확인 상수 **`BLOGWR_GOOGLE_VERIFY`·`BLOGWR_NAVER_VERIFY`·`BLOGWR_DAUM_ROBOTS_PIN`(현재 빈값 — 사용자가 서치콘솔/서치어드바이저/다음도구에서 코드 받아오면 채움)**. 사이트맵 `/wp-sitemap.xml` 정상.
@@ -909,6 +910,32 @@ hsrealty 기술 블로그 공개 글 14편 전부 대표이미지가 없던 것 
 - 검증: catband 14개 정확, 사진·텍스트·lazy 로딩 정상(화면 밖 배너 사진 빈 것은 lazy 정상 동작), 홈 200.
 - **배경 패턴 전환(같은 날, 커밋 `f48927b`, 자식테마 1.7.0)**: 원대표 요청("흰 바탕→무늬 바탕")으로 body 배경을 **CSS 패턴**(#f6f8fb + 24px 네이비 미세 도트 + 상단 네이비·좌측 골드 라디얼 틴트, 이미지 파일 없음)으로 전환. 흰 상품 카드가 배경 위에 떠 보이는 구조. 전 페이지 공통 적용(body라 자동). 백업 `_theme_bak/style.css.bak.20260826pattern`. 되돌리기=body 블록 원복.
 - 테마 백업 `_theme_bak/*.bak.20260825motion`, mp4 원본 NAS `hsrealty_visual_20260825/` 보관. 검증: 마크업·200·Playwright 스크린샷(재생 중 프레임 확인) 완료.
+
+## 2026-08-31 작업 이력 — onbid 스케줄러 UTC 발화 버그 확정 수정 (대법원 공고 "8/28 이후 미갱신" 원인)
+- **증상**: 파산공매 공고가 8/28 이후 안 올라옴(원대표 신고, 8/31 월 오후). 실체 = ①8/29~30 주말은 법원 신규 공고가 원래 없음(수집은 돌았고 0건 신규 = 정상) ②**8/31 월요일 낮 공고 11건이 미수집** — 스케줄러가 08:30/13:30 **UTC**(=17:30/22:30 KST)로 발화 중이라 낮 시간대 실행이 없었음.
+- **근본 원인**: `scheduler.py`의 `CronTrigger(hour="8,13", minute="30")`가 **timezone 인자 없이 직접 생성**됨 — APScheduler에서 트리거 인스턴스를 직접 만들면 `BackgroundScheduler(timezone="Asia/Seoul")`의 타임존을 **물려받지 않고** 컨테이너 로컬(=UTC)을 씀. ⚠️ **2026-06-29 "재빌드로 해소" 기록은 불완전한 결론이었음** — DB created_at 실측(매일 08:33/13:33 UTC 기록)상 UTC 발화가 그 후로도 지속돼 왔고, 매일 저녁에라도 수집은 됐기에 아무도 눈치 못 채다가 주말+월요일 조합에서 드러난 것.
+- **수정**: CronTrigger 5곳 전부에 `timezone="Asia/Seoul"` 명시(파산 3잡 + 온비드 09:00 + 활성검증 10:30) 후 재빌드·재기동. 백업 `scheduler.py.bak.20260831`. 검증: 다음 발화 `+09:00` 확인.
+- **하루 3회로 확대(같은 날, 원대표 지시)**: 파산 3잡을 `hour="8,13,17"`로 변경 → **08:30/13:30/17:30 KST**(2a·2b는 +5분/+10분). 재빌드·재기동·발화시각 검증 완료.
+- **밀린 수집 수동 처리**: Phase1 신규 11건 → 2a PDF 11건 → 2b AI 분석 11건 전부 완료(미분석 0). 사이트 200.
+- ⚠️ 컨테이너 재생성 후 `docker exec onbid-nginx nginx -s reload` 실행함(DNS 캐시 502 함정 회피). 이 수정도 **로컬 수정·GitHub 미push**(기존 6-29·7-12 변경과 동일 상태).
+
+## 2026-09-03 작업 이력 — hsrealty B2B 견적서 2건 작성·발송 (이오스페이먼츠·매터봇시스템)
+- **유입**: 리드폼(이오스페이먼츠 강재경 본부장, nas-guide 경유)·견적요청폼(㈜매터봇시스템 오태현). 메일 왕복 끝 확정 구성으로 견적.
+  - 이오스페이먼츠: **DS925+ ×1 + HAT3320-8T ×2 = 2,850,000원**(VAT 포함, 공급가액 2,590,909+세액 259,091)
+  - 매터봇시스템: **DS925neo+ ×1 + HAT3310-12T ×4 = 4,712,000원**(VAT 포함, 공급가액 4,283,636+세액 428,364). 정부 R&D 연구비 구매 — **청구용 전자세금계산서 선발행 가능**(발주→사업자등록증→선발행→입금→출고)·거래명세서 발급 가능·납기 "입금 후 2~5영업일, 발주 시 재고 기준 확정"으로 회신.
+- **견적서 워크플로 신설**: python-docx→LibreOffice PDF(A4 명시·`-env:UserInstallation` 필수). 도구는 **`/opt/hsrealty/quotes/`**(make_quote.py·send_quote_mail.py·README) 커밋, 산출물은 NAS `/mnt/nas/temp/견적서_20260903/`(저장소 미포함). 견적번호 `HS-YYYYMMDD-NN`.
+- **원대표 확정 표기 원칙**(재발 방지): 표 8열 = No|품명/모델명|규격|수량|**단가(VAT포함)**|공급가액|세액|금액 + 한글 합계금액(金 ○○원整). ⛔ **넣지 말 것**: 통신판매업 등록번호(공급자란)·RAID/SHR 구성 안내(견적서·메일 모두)·"무상 원격 설치 지원" 문구.
+- **발송**: hs@hsrealty.co.kr(다음 SMTP)로 PDF만 첨부, 강재경 건은 스레드 회신(In-Reply-To). **IMAP APPEND로 "Sent Messages"(보낸편지함) 저장**(UID 437·438 확인) — 발신함 저장이 기본 요구.
+- ⏳ 잔여: 매터봇 발주 들어오면 **DS925neo+ 실재고 SK 확인 후 납기 확정** 안내.
+
+## 2026-09-03 작업 이력 (2) — 한국스틸웨어 NAS 제안서(PPT)·견적서 3안 작성·발송
+- **고객**: ㈜한국스틸웨어(화성시 마도면, 본사/공장 + 2공장, PC 약 20대, 과거 데이터 보관 PC 고장으로 전손 경험). 담당 = 경영지원부 이주미 대리(ksw@koreasw.co.kr·010-9525-3183·대표 031-357-2075). ⚠️ 상호는 "스틸웨어"가 아니라 **한국스틸웨어** — 명함으로 확정 후 전 문서 정정. 두 공장이 같은 마도산단 내(직선 ~1km)라 **방문설치 1일 2곳 처리 협의 여지**(견적은 2일 기준).
+- **제안 구조**: 공장별 NAS 1대(12TB HDD **1개, RAID 없음** — 원대표 확정) + 야간 양방향 교차 백업(Hyper Backup) = 3-2-1 충족(사본3=PC원본+자기공장NAS+상대공장NAS). 본체 3안 = DS225+/DS725neo+/DS925neo+(★권장, 4베이 빈베이3) 각 2대. **읽기/쓰기 속도(MB/s) 표기는 원대표 지시로 전 문서에서 제거**(재삽입 금지).
+- **견적**: HS-20260903-**03/-04/-05** = 3,294,000 / 4,042,000 / 4,228,000원(VAT 포함, 12TB×2 + 방문설치 2일 포함). 메일 본문에 **HDD 4~20TB 선택 가능·12TB 대비 차액×2 증감** 안내(단가표 동봉). **발송 완료**(제안서 PDF+견적 3안 첨부, Sent Messages UID 442).
+- **산출물**: NAS `/mnt/nas/temp/스틸웨어_제안서_20260903/`(제안서 pptx/pdf/A4판·견적 PDF·메일초안·생성/발송 스크립트 전부). 견적 docx/pdf는 관례대로 `/mnt/nas/temp/견적서_20260903/`에도. 용량 변경 회신 시 `make_steelware_quotes.py`의 HDD 라인만 수정해 -06부터 재발행.
+- **PPT 제안서 워크플로 신설(원본 pptx 재활용)**: 기존 DS225+ 제안서 원본 pptx를 python-pptx로 열어 **텍스트만 치환(사무실A/B→1공장/2공장, 4TB→12TB) + sldIdLst 재배열·`drop_rel`로 슬라이드 취사선택 + 신규 슬라이드 3장(3-2-1·비교표·가격) 추가** — 원본 디자인(구성안3 다이어그램 포함)을 그대로 보존한 고객 맞춤판. 스크립트 `make_steelware_ppt_v2.py`(NAS 보존).
+  - ⚠️ **함정 3개**: ①웹도구 산출 pptx는 **slide layout이 1개뿐** — `slide_layouts[6]`(표준 blank) 가정하면 IndexError, `[0]` 사용 ②**libreoffice-impress가 미설치였음**(09-01에 writer만 설치) — pptx 변환이 "source file could not be loaded"로 실패, `apt install libreoffice-impress`로 해소(**이제 이 서버에서 pptx→PDF 변환 가능**) ③55dpi 저해상 렌더를 눈으로 판독하다 "도형 미렌더"로 **오진**(style 제거·재배열 등 불필요한 수정 시도) — 실제로는 정상 렌더였음. **렌더 검증은 PIL 픽셀 검사 또는 100dpi 이상으로 할 것.**
+- **스펙 지식(공식 데이터시트 실확인, 2026-09-03)**: DS725neo+=Ryzen **R1600 듀얼**(2.6/3.1GHz), DS925neo+=Ryzen **V1500B 쿼드**(2.2GHz) — **neo와 비(非)neo가 같은 CPU**(725끼리·925끼리 동일), 725↔925는 다름(원대표 "같은 CPU" 기억은 이 혼동). 공식 성능 522/565MB/s는 **듀얼 2.5GbE 결합 + 다중 클라이언트 조건**(단일 2.5GbE 물리 한계 ≈295MB/s — 276~283 수치가 그 포화값). 단일 HDD·1GbE 클라이언트 환경에선 모델 간 체감차 거의 없음.
 
 ## 미완료 항목
 - [ ] **hsrealty 유튜브 채널 — 착수 전 결정 대기(2026-08-14)**: ①촬영·편집 주체 ②주 몇 편 3개월 유지 가능한가. 결정되면 첫 편(3-2-1 백업) 힉스필드 프롬프트+나레이션 대본 작성. **하이브리드 원칙 준수**(제품 외형·DSM 화면·설치 현장은 AI 금지). 상세는 위 2026-08-14 이력.
