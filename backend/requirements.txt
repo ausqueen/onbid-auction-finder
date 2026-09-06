@@ -1,7 +1,7 @@
 # 2026-07-25: 미고정이던 google-genai·pymupdf·playwright·pyhwp·lxml 을 당시 운영 컨테이너의
 # 실제 설치 버전으로 고정. 특히 playwright 는 미고정 시 재빌드마다 최신판이 설치되어
 # 베이스 이미지에 내장된 브라우저(v1.60.0)와 불일치 → 스크래핑 전면 실패하는 지뢰였음.
-fastapi==0.115.0
+fastapi==0.116.1
 uvicorn[standard]==0.30.6
 sqlalchemy==2.0.35
 pydantic-settings==2.5.2
@@ -17,6 +17,6 @@ pyhwp==0.1b15
 lxml==6.1.1
 bcrypt==4.2.0
 pyjwt==2.8.0
-python-multipart==0.0.9
+python-multipart==0.0.20
 passlib==1.7.4
 
