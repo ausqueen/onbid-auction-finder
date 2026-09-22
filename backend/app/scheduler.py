@@ -108,6 +108,7 @@ def start_scheduler():
             trigger=CronTrigger(
                 hour=settings.sync_hour,
                 minute=settings.sync_minute,
+                timezone="Asia/Seoul",
             ),
             id="daily_sync",
             name="온비드 일일 동기화",
@@ -120,34 +121,34 @@ def start_scheduler():
     if settings.onbid_verify_enabled:
         _scheduler.add_job(
             _scheduled_verify,
-            trigger=CronTrigger(hour=10, minute=30),
+            trigger=CronTrigger(hour=10, minute=30, timezone="Asia/Seoul"),
             id="verify_stale_active",
             name="온비드 활성상태 검증",
             replace_existing=True,
         )
 
-    # 대법원 파산 공고 수집 (오전 8시 30분, 오후 1시 30분)
+    # 대법원 파산 공고 수집 (오전 8시 30분, 오후 1시 30분, 오후 5시 30분)
     _scheduler.add_job(
         _scheduled_bankruptcy_phase1,
-        trigger=CronTrigger(hour="8,13", minute="30"),
+        trigger=CronTrigger(hour="8,13,17", minute="30", timezone="Asia/Seoul"),
         id="bankruptcy_sync_phase1",
         name="대법원 공고 수집",
         replace_existing=True,
     )
 
-    # 대법원 파산 공고 PDF 동기화 (오전 8시 35분, 오후 1시 35분)
+    # 대법원 파산 공고 PDF 동기화 (오전 8시 35분, 오후 1시 35분, 오후 5시 35분)
     _scheduler.add_job(
         _scheduled_bankruptcy_phase2a,
-        trigger=CronTrigger(hour="8,13", minute="35"),
+        trigger=CronTrigger(hour="8,13,17", minute="35", timezone="Asia/Seoul"),
         id="bankruptcy_sync_phase2a",
         name="대법원 공고 PDF 동기화",
         replace_existing=True,
     )
 
-    # 대법원 파산 공고 분석 (오전 8시 40분, 오후 1시 40분)
+    # 대법원 파산 공고 분석 (오전 8시 40분, 오후 1시 40분, 오후 5시 40분)
     _scheduler.add_job(
         _scheduled_bankruptcy_phase2,
-        trigger=CronTrigger(hour="8,13", minute="40"),
+        trigger=CronTrigger(hour="8,13,17", minute="40", timezone="Asia/Seoul"),
         id="bankruptcy_sync_phase2",
         name="대법원 공고 AI 분석",
         replace_existing=True,
